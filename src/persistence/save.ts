@@ -10,7 +10,7 @@ export interface WorldState {
   res: Record<DType, number>; species: Species[]; log: string[];
 }
 
-export type Soundtrack = 'mix' | 'fever' | 'swing';
+export type Soundtrack = 'fever' | 'swing' | 'cucina';
 export interface Settings { dmgNumbers: boolean; arcs: boolean; shake: boolean; bloom: boolean; music: boolean; soundtrack: Soundtrack }
 
 export interface Save {
@@ -29,7 +29,7 @@ export interface Save {
   profile?: Profile;
 }
 
-export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true, music: true, soundtrack: 'mix' });
+export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true, music: true, soundtrack: 'fever' });
 
 export function newWorldState(save: Pick<Save, 'nextId'>, k: string): WorldState {
   const w: WorldState = { gen: 0, tier: 1, runs: 0, wins: 0, era: 1, res: {} as Record<DType, number>, species: [], log: [] };
@@ -92,6 +92,7 @@ export function hydrate(s: Save): Save {
   if (!s.gridR) s.gridR = 2;
   for (const t in s.inv) if (!B[t]) delete s.inv[t];
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
+  if (!['fever', 'swing', 'cucina'].includes(s.settings.soundtrack)) s.settings.soundtrack = 'fever';
   s.profile = ensureProfile(s.profile);
   return s;
 }
