@@ -88,7 +88,7 @@ export interface RunStats {
 
 /** One truck in the run. Solo runs have exactly one; co-op adds teammates. */
 export interface Player {
-  pid: string; name: string; color: string; idx: number;
+  pid: string; name: string; color: string; idx: number; avatar: string;
   V: Vehicle; mods: Mods; lvl: Record<string, number>; up: UpLevels; build: BuildCell[]; gridR: number;
   joy: { x: number; y: number };
   alive: boolean; gone: boolean; respawnT: number; lavaT: number; hazWarned: boolean; downs: number;
@@ -98,14 +98,14 @@ export interface Player {
   pendingCards: number;
 }
 
-export interface PlayerSpec { pid: string; name: string; build: BuildCell[]; up: UpLevels; gridR: number; color?: string }
+export interface PlayerSpec { pid: string; name: string; build: BuildCell[]; up: UpLevels; gridR: number; color?: string; /** captain on the cab (cosmetic) */ avatar?: string }
 
 export const PLAYER_COLORS = ['#00f0ff', '#ff2bd6', '#f5ff3b', '#5dff8a'];
 export const RESPAWN_TIME = 10;
 
 const freshStats = (): RunStats => ({ dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1, zapped: 0, downs: 0 });
 
-export interface RunOptions { seed?: number; /** extra players (co-op); the save's owner is always player 0 */ crew?: PlayerSpec[]; pid?: string; name?: string; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
+export interface RunOptions { seed?: number; /** extra players (co-op); the save's owner is always player 0 */ crew?: PlayerSpec[]; pid?: string; name?: string; avatar?: string; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
 
 export class Run {
   readonly save: Save;
@@ -157,7 +157,7 @@ export class Run {
     for (const t of DTYPES) this.killsBy[t] = 0;
     this.loot = {} as Record<ResKey, number>;
     for (const r of RES_KEYS) this.loot[r] = 0;
-    const specs: PlayerSpec[] = [{ pid: opts.pid ?? 'me', name: opts.name ?? 'You', build: save.build, up: save.up, gridR: save.gridR }, ...(opts.crew ?? [])];
+    const specs: PlayerSpec[] = [{ pid: opts.pid ?? 'me', name: opts.name ?? 'You', avatar: opts.avatar, build: save.build, up: save.up, gridR: save.gridR }, ...(opts.crew ?? [])];
     for (const sp of specs) this.addPlayer(sp);
     this.coop = this.players.length > 1;
     const n = this.players.length;
@@ -171,7 +171,7 @@ export class Run {
   private addPlayer(sp: PlayerSpec): Player {
     const idx = this.players.length;
     const p: Player = {
-      pid: sp.pid, name: sp.name, color: sp.color ?? PLAYER_COLORS[idx % PLAYER_COLORS.length], idx,
+      pid: sp.pid, name: sp.name, color: sp.color ?? PLAYER_COLORS[idx % PLAYER_COLORS.length], idx, avatar: sp.avatar ?? 'charles',
       V: makeVehicle(sp.build, sp.up, this.rng), mods: freshMods(), lvl: {}, up: sp.up, build: sp.build.map(b => ({ ...b })), gridR: sp.gridR,
       joy: { x: 0, y: 0 }, alive: true, gone: false, respawnT: 0, lavaT: 0, hazWarned: false, downs: 0,
       kills: 0, dmgBy: {}, killsSrc: {}, peak: {}, taken: 0, stats: freshStats(), pendingCards: 0,

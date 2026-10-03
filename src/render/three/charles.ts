@@ -3,13 +3,15 @@
 // and a damped spring makes him wobble when the truck accelerates, turns or gets hit.
 import * as THREE from 'three';
 import type { Vehicle } from '../../vehicle/vehicle';
+import { avatarOf } from '../../meta/avatars';
 
 const FRAMES = 8;
 const HEIGHT = 62; // world units, deliberately oversized like a bobblehead
-const ASPECT = 143.5 / 171; // one frame of public/charles/sheet.png
+const ASPECT = 143.5 / 171; // one frame of a captain sheet (all are cut to 1148 x 171)
 
-export function charlesTexture(onLoad?: () => void): THREE.Texture {
-  const tex = new THREE.TextureLoader().load('charles/sheet.png', onLoad);
+/** A fresh texture per sprite (each one scrolls its own frame offset). */
+export function charlesTexture(onLoad?: () => void, avatar?: string): THREE.Texture {
+  const tex = new THREE.TextureLoader().load(avatarOf(avatar).sheet, onLoad);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.LinearFilter;
@@ -44,6 +46,7 @@ export class Bobblehead {
   private bx = 0; private bz = 0; private bvx = 0; private bvz = 0;
   private by = 0; private bvy = 0;
   private lvx = 0; private lvy = 0; private lastFlash = 0;
+  private avatar = 'charles';
 
   constructor() {
     this.tex = charlesTexture();
@@ -52,6 +55,18 @@ export class Bobblehead {
   }
 
   hide(): void { this.sprite.visible = false; }
+
+  /** Swap the captain (co-op: each truck shows its own driver's pick). */
+  setAvatar(id: string): void {
+    id = avatarOf(id).id;
+    if (id === this.avatar) return;
+    this.avatar = id;
+    const old = this.tex;
+    this.tex = charlesTexture(undefined, id);
+    (this.sprite.material as THREE.SpriteMaterial).map = this.tex;
+    (this.sprite.material as THREE.SpriteMaterial).needsUpdate = true;
+    old.dispose();
+  }
 
   update(x: number, top: number, z: number, heading: number, V: Vehicle, dt: number, time: number): void {
     const s = this.sprite;

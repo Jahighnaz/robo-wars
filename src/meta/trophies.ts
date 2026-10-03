@@ -81,7 +81,7 @@ export const TROPHIES: TrophyDef[] = [
   // --- platinum
   { id: 'charles_proud', title: 'Charles Would Be Proud', desc: 'Unlock every other trophy (easter eggs not required).', tier: 'platinum', check: c => TROPHIES.every(t => t.hidden || t.tier === 'platinum' || !!c.p.trophies[t.id]) },
   // --- hidden easter eggs
-  { id: 'bobblehead_fan', title: 'Bobblehead Fan Club', desc: 'Pester Captain Charles ten times on the menu.', tier: 'bronze', hidden: true, check: c => c.event === 'tap_charles' && (c.p.eggs.tap_charles || 0) >= 10 },
+  { id: 'bobblehead_fan', title: 'Bobblehead Fan Club', desc: 'Pester your captain ten times on the menu.', tier: 'bronze', hidden: true, check: c => c.event === 'tap_charles' && (c.p.eggs.tap_charles || 0) >= 10 },
   { id: 'identity_theft', title: 'Identity Theft', desc: 'Call yourself Charles. There can only be one.', tier: 'bronze', hidden: true, check: c => c.event === 'rename' && c.p.name.trim().toLowerCase() === 'charles' },
   { id: 'secret_handshake', title: 'Secret Handshake', desc: 'Tap the // in the title seven times.', tier: 'bronze', hidden: true, check: c => c.event === 'slash' && (c.p.eggs.slash || 0) >= 7 },
   { id: 'midnight_oil', title: 'Burning the Midnight Oil', desc: 'Finish a shift between midnight and 4 am.', tier: 'silver', hidden: true, check: c => !!run(c) && c.now.getHours() < 4 },

@@ -4,6 +4,14 @@ import { defaultSave } from '../src/persistence/save';
 import { encodeSnapshot, Mirror, startInfo } from '../src/net/coop';
 
 describe('co-op snapshots', () => {
+  it('each truck keeps its own captain on the client', () => {
+    const mate = { pid: 'saida', name: 'Saida', avatar: 'saida', build: defaultSave().build, up: {}, gridR: 2 };
+    const host = new Run(defaultSave(), 'rust', { seed: 3, pid: 'olle', name: 'Olle', avatar: 'olle', crew: [mate] });
+    const mirror = new Mirror(startInfo(host), 'saida', { w: 1024, h: 768 });
+    expect(mirror.run.players.map(p => p.avatar)).toEqual(['olle', 'saida']);
+    expect(new Run(defaultSave(), 'rust', { seed: 3 }).players[0].avatar).toBe('charles');
+  });
+
   it('a client mirror reproduces the host state', () => {
     const mate = { pid: 'dave', name: 'Dave', build: defaultSave().build, up: {}, gridR: 2 };
     const host = new Run(defaultSave(), 'tundra', { seed: 21, pid: 'charles', name: 'Charles', crew: [mate] });

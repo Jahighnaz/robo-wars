@@ -32,10 +32,25 @@ export class Preview3D {
     this.barrels = new Pool(box, neonMaterial({ edge: 0.12, glow: 1.5, body: 0.3 }), 200);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), groundMaterial(new THREE.Color(0x070a14), new THREE.Color(0x00f0ff)));
     // showroom pose: Charles turned three-quarters toward the viewer
-    const tex = charlesTexture(() => { if (this.last) this.render(...this.last); });
-    tex.offset.x = 7 / 8;
-    this.charles = charlesSprite(tex);
+    this.charles = charlesSprite(this.captainTex('charles'));
     this.scene.add(ground, this.arcs, this.blocks.mesh, this.barrels.mesh, this.charles);
+  }
+
+  private avatar = 'charles';
+  private captainTex(id: string): THREE.Texture {
+    const tex = charlesTexture(() => { if (this.last) this.render(...this.last); }, id);
+    tex.offset.x = 7 / 8;
+    return tex;
+  }
+
+  /** Show the player's chosen captain on the showroom truck. */
+  setAvatar(id: string): void {
+    if (id === this.avatar) return;
+    this.avatar = id;
+    const mat = this.charles.material as THREE.SpriteMaterial;
+    mat.map?.dispose();
+    mat.map = this.captainTex(id);
+    mat.needsUpdate = true;
   }
 
   render(build: BuildCell[], w: number, h: number): void {

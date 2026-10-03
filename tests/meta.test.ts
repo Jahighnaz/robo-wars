@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Run } from '../src/sim/run';
 import { defaultSave } from '../src/persistence/save';
-import { accumulate, addChallengeEntry, challengeScore, exportCard, importCard, publicProfile, type Challenge } from '../src/meta/profile';
+import { accumulate, addChallengeEntry, challengeScore, ensureProfile, exportCard, importCard, publicProfile, type Challenge } from '../src/meta/profile';
 import { applyRun, standings } from '../src/meta/records';
 import { evaluate, TROPHIES } from '../src/meta/trophies';
 import { playRun } from './bot';
@@ -71,5 +71,13 @@ describe('records and trophies', () => {
     expect(s2.runs).toBe(0);
     expect(s2.res.scrap).toBe(60);
     expect(JSON.stringify(s2.worlds.rust.species.map(x => x.name))).toBe(before);
+  });
+});
+
+describe('captain choice', () => {
+  it('defaults to Charles and drops unknown captains', () => {
+    expect(ensureProfile(undefined).avatar).toBe('charles');
+    expect(ensureProfile({ name: 'X', avatar: 'hannes' }).avatar).toBe('hannes');
+    expect(ensureProfile({ name: 'X', avatar: 'darth' }).avatar).toBe('charles');
   });
 });

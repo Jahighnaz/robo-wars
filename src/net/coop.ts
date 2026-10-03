@@ -38,7 +38,7 @@ export const HOST_ONLY = new Set(['coop_join', 'coop_unjoin', 'in', 'pick', 'coo
 export function startInfo(run: Run): CoopStart {
   return {
     wk: run.wk, seed: run.seed, tier: run.W.tier, era: run.W.era,
-    specs: run.players.map(p => ({ pid: p.pid, name: p.name, build: p.build, up: p.up, gridR: p.gridR, color: p.color })),
+    specs: run.players.map(p => ({ pid: p.pid, name: p.name, build: p.build, up: p.up, gridR: p.gridR, color: p.color, avatar: p.avatar })),
     species: run.W.species.map(s => ({ id: s.id, name: s.name, cells: s.cells, pref: s.pref, spd: s.spd })),
     hz: run.HZ,
   };
@@ -110,7 +110,7 @@ export class Mirror {
     this.species = W.species;
     const [first, ...rest] = s.specs;
     save.build = first.build; save.up = first.up; save.gridR = first.gridR;
-    const run = new Run(save, s.wk, { seed: s.seed, visual: true, exhibition: true, pid: first.pid, name: first.name, crew: rest, viewW: view.w, viewH: view.h });
+    const run = new Run(save, s.wk, { seed: s.seed, visual: true, exhibition: true, pid: first.pid, name: first.name, avatar: first.avatar, crew: rest, viewW: view.w, viewH: view.h });
     run.players[0].color = first.color ?? run.players[0].color;
     run.HZ = s.hz;
     run.DEP = [];

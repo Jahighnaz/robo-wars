@@ -304,6 +304,7 @@ export class Renderer3D {
       this.pGlow.push(px0, 0.8, py0, 0, ug, 1, ug, col(run.coop ? pl.color : '#00c8ff'), local ? 0.3 : 0.4);
       if (run.coop) this.pRing.push(px0, 1.1, py0, this.time * 0.7, PV.s.radius * 2.6, 1, PV.s.radius * 2.6, col(pl.color), 0.45);
       const bh = this.bobble(pl.idx);
+      bh.setAvatar(pl.avatar);
       for (const b of PV.list) {
         const d = B[b.t];
         const lx = b.x * CS, ly = b.y * CS;

@@ -2,6 +2,7 @@
 // we know about crew-mates. Stored inside the save (the prototype ignores it).
 import type { RunResult } from '../sim/run';
 import { fam } from '../data';
+import { avatarOf } from './avatars';
 
 export interface ChallengeEntry { pid: string; name: string; score: number; t: number; kills: number; won: boolean; at: number }
 export interface Challenge { id: string; wk: string; seed: number; by: string; byName: string; at: number; entries: ChallengeEntry[] }
@@ -25,6 +26,8 @@ export interface Profile {
   mates: Record<string, PublicProfile>;
   challenges: Challenge[];
   crewCode?: string;
+  /** captain on the truck (see AVATARS) */
+  avatar: string;
 }
 
 const uid = () => {
@@ -36,7 +39,7 @@ export function newProfile(): Profile {
   return {
     id: uid(),
     name: 'Intern #' + (100 + Math.floor(Math.random() * 900)),
-    best: {}, life: {}, trophies: {}, eggs: {}, mates: {}, challenges: [],
+    best: {}, life: {}, trophies: {}, eggs: {}, mates: {}, challenges: [], avatar: 'charles',
   };
 }
 
@@ -54,6 +57,7 @@ export function ensureProfile(p: Partial<Profile> | undefined): Profile {
     mates: p.mates && typeof p.mates === 'object' ? p.mates : {},
     challenges: Array.isArray(p.challenges) ? p.challenges.slice(0, 10) : [],
     crewCode: typeof p.crewCode === 'string' ? p.crewCode : undefined,
+    avatar: avatarOf(p.avatar).id,
   };
 }
 

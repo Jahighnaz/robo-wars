@@ -22,6 +22,7 @@ import { evaluate, TIER_ORDER, TROPHIES, type TrophyDef } from '../meta/trophies
 import { cleanCode, Crew, newCrewCode, type CrewMsg } from '../net/crew';
 import { encodeSnapshot, Mirror, SNAP_HZ, startInfo, type CoopMsg, type CoopStart } from '../net/coop';
 import { PLAYER_COLORS, type PlayerSpec } from '../sim/run';
+import { AVATARS, avatarOf } from '../meta/avatars';
 
 type Mode = 'hub' | 'garage' | 'run' | 'cards' | 'place' | 'pause' | 'debrief' | 'menu';
 const STEP = 1 / 60;
@@ -294,7 +295,7 @@ export class App {
     unlockAudio();
     this.coop = null;
     this.activeChallenge = challenge;
-    const opts = { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh };
+    const opts = { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh, avatar: this.profile.avatar };
     if (challenge) {
       // fair fight: everyone drives the same stock truck on the same map, and nothing is banked
       const scratch = defaultSave();
@@ -361,7 +362,7 @@ export class App {
   showHub() {
     this.run = null;
     this.setMode('hub');
-    const s = this.save;
+    const s = this.save, cap = avatarOf(this.profile.avatar);
     const worlds = WORLD_KEYS.map(k => {
       const Wd = WORLDS[k], W = s.worlds[k];
       const maxw = Math.max(...Object.values(Wd.res).map(v => v || 0));
@@ -391,9 +392,13 @@ export class App {
           el('h1', { class: 'logo', 'data-text': 'CHARLES//PROJECTS' }, 'CHARLES', el('span', { class: 'slash', onclick: () => this.egg('slash') }, '//'), el('span', { class: 'evo' }, 'PROJECTS')),
           el('div', { class: 'stat', style: 'font-size:12px;display:inline-block;margin-top:14px' }, 'RUNS ', el('b', null, String(s.runs)), ' · WINS ', el('b', null, String(s.wins)), ' · SPECIES FOUND ', el('b', null, String(s.discovered)))),
         el('div', { class: 'captain' },
-          el('img', { src: 'charles/portrait.png', alt: 'Captain Charles', draggable: 'false', onclick: (e: Event) => this.tapCharles(e.currentTarget as HTMLElement) }),
-          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, 'Charles'), el('div', { class: 'meta', style: 'margin-top:6px' }, 'Driver: ', el('b', null, this.profile.name))))),
-      el('p', { class: 'sub' }, "Captain Charles drives a workshop truck built from blocks. Bolt on nailguns, saw launchers, hot glue, laser and plasma cutters, survive five minutes of waves and scrap the apex. Every sector evolves against the way you build."),
+          el('img', { src: cap.portrait, alt: 'Captain ' + cap.name, draggable: 'false', onclick: (e: Event) => this.tapCharles(e.currentTarget as HTMLElement) }),
+          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, cap.name), el('div', { class: 'meta', style: 'margin-top:6px' }, 'Driver: ', el('b', null, this.profile.name)),
+            el('div', { class: 'avpick', role: 'radiogroup', 'aria-label': 'Choose your captain' }, AVATARS.map(a =>
+              el('button', { class: a.id === cap.id ? 'on' : '', role: 'radio', 'aria-checked': String(a.id === cap.id), title: a.name,
+                onclick: () => { if (a.id === cap.id) return; this.profile.avatar = a.id; this.store(); uiSnd(700); this.showHub(); } },
+                el('img', { src: a.portrait, alt: a.name, draggable: 'false' }))))))),
+      el('p', { class: 'sub' }, "Captain " + cap.name + " drives a workshop truck built from blocks. Bolt on nailguns, saw launchers, hot glue, laser and plasma cutters, survive five minutes of waves and scrap the apex. Every sector evolves against the way you build."),
       this.resChips(s.res),
       el('div', { class: 'nav' },
         el('button', { class: 'btn', onclick: () => { uiSnd(); this.gSel = null; this.gTool = null; this.showGarage(); } }, el('span', { html: iconSvg('cab', 'currentColor', 18) }), 'Garage'),
@@ -557,6 +562,7 @@ export class App {
 
     this.preview ||= new Preview3D();
     const pw = Math.max(240, Math.min(this.garageMaxW() - 36, 560));
+    this.preview.setAvatar(this.profile.avatar);
     this.preview.render(s.build, pw, Math.round(pw * 0.62));
     const preview = el('div', { class: 'preview' }, this.preview.canvas,
       el('p', null, 'Tool coverage. Each cone shows where a tool can hit; rings are 360° tools. Gaps are where enemies reach you unopposed. Tap a tool twice to turn it.'));
@@ -846,7 +852,7 @@ export class App {
 
   private tapCharles(img: HTMLElement) {
     const n = (this.profile.eggs.tap_charles || 0) % CHARLES_SAYS.length;
-    this.toast('Charles: "' + CHARLES_SAYS[n] + '"', 2600);
+    this.toast(avatarOf(this.profile.avatar).name + ': "' + CHARLES_SAYS[n] + '"', 2600);
     img.classList.remove('boing'); void img.offsetWidth; img.classList.add('boing');
     snd(300 + Math.random() * 200, 0.12, 'square', 0.03);
     this.egg('tap_charles');
@@ -958,7 +964,7 @@ export class App {
 
   private mySpec(): PlayerSpec {
     const s = this.save;
-    return { pid: this.profile.id, name: this.profile.name, build: s.build.map(b => ({ ...b })), up: { ...s.up }, gridR: s.gridR };
+    return { pid: this.profile.id, name: this.profile.name, avatar: this.profile.avatar, build: s.build.map(b => ({ ...b })), up: { ...s.up }, gridR: s.gridR };
   }
 
   private broadcastLobby() {
@@ -987,7 +993,7 @@ export class App {
     unlockAudio();
     this.activeChallenge = null;
     this.run = new Run(this.save, L.wk, { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh,
-      pid: this.profile.id, name: this.profile.name, crew: crewSpecs });
+      pid: this.profile.id, name: this.profile.name, avatar: this.profile.avatar, crew: crewSpecs });
     this.coop = { role: 'host', offers: new Map(), myCards: null, lastSnap: 0, lastIn: 0 };
     this.crew.send({ k: 'coop_start', s: startInfo(this.run) });
     this.lobby = null;
