@@ -3,7 +3,8 @@ import { B, DTYPES, PLACEABLE, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, 
 import { angDiff, clamp, fmtTime, lerp, roman } from '../core/math';
 import { describeSpecies } from '../enemies/species';
 import { Run, type Card, type RunResult } from '../sim/run';
-import { Renderer } from '../render/renderer';
+import { Renderer3D } from '../render/three/renderer3d';
+import { Preview3D } from '../render/three/preview3d';
 import { iconSvg } from '../render/icons';
 import { Joystick } from '../input/joystick';
 import { setMuted, shotSnd, snd, uiSnd, unlockAudio } from '../audio/audio';
@@ -26,7 +27,8 @@ export class App {
   run: Run | null = null;
   mode: Mode = 'hub';
   private ui = $('ui');
-  private renderer: Renderer;
+  private renderer: Renderer3D;
+  private preview: Preview3D | null = null;
   private joy: Joystick;
   private acc = 0;
   private last = 0;
@@ -45,7 +47,7 @@ export class App {
     this.save = save;
     setMuted(save.muted);
     const cv = $<HTMLCanvasElement>('cv');
-    this.renderer = new Renderer(cv);
+    this.renderer = new Renderer3D(cv, $<HTMLCanvasElement>('ov'));
     this.joy = new Joystick(cv, () => this.mode === 'run', unlockAudio);
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onResize(), 200));
@@ -66,7 +68,7 @@ export class App {
 
   private onResize() {
     this.renderer.resize();
-    if (this.run) this.run.setView(this.renderer.vw, this.renderer.vh);
+    if (this.run) { this.run.setView(this.renderer.vw, this.renderer.vh); this.renderer.configureSpawn(this.run); }
     if (this.mode === 'garage') this.showGarage(true);
   }
 
@@ -113,7 +115,7 @@ export class App {
       : { alpha: 1, vx: 0, vy: 0, vh: 0 };
     const showRun = run && (this.mode === 'run' || this.mode === 'cards' || this.mode === 'place' || this.mode === 'pause' || (this.mode !== 'debrief' && run.over));
     this.renderer.draw(showRun ? run : null, ip, {
-      arcs: this.settings.arcs, shake: this.settings.shake,
+      arcs: this.settings.arcs, shake: this.settings.shake, bloom: this.settings.bloom,
       joy: { active: this.joy.active && this.mode === 'run', ox: this.joy.ox, oy: this.joy.oy, x: this.joy.x, y: this.joy.y, radius: this.joy.radius },
       showHint: this.mode === 'run' && !this.joy.everUsed && this.save.runs < 3,
     }, dt);
@@ -191,6 +193,7 @@ export class App {
   private startRun(wk: string) {
     unlockAudio();
     this.run = new Run(this.save, wk, { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh });
+    this.renderer.configureSpawn(this.run);
     this.snapshot(this.run);
     this.acc = 0; this.levelFlash = -1; this.endTimer = -1;
     this.setMode('run');
@@ -328,6 +331,7 @@ export class App {
         toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
         toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
         toggle('Firing arcs', 'Show where each weapon fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
+        toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
         toggle('Screen shake', 'Shake the camera on hits and explosions.', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
       el('h2', null, 'Back up your save'),
       msg, ta,
@@ -434,10 +438,11 @@ export class App {
         meter('PICKUP RANGE', String(vs.magnet), vs.magnet / 400)),
       warn.map(w => el('div', { class: 'warn' }, w)));
 
-    const pcv = el('canvas', { width: '300', height: '300', 'aria-label': 'Firing coverage preview' });
-    Renderer.drawBuildPreview(pcv, s.build, true);
-    const preview = el('div', { class: 'preview' }, pcv,
-      el('p', null, 'Firing coverage. Each cone shows where a weapon can hit. Gaps are where enemies can reach you unopposed. Tap a weapon twice to turn it.'));
+    this.preview ||= new Preview3D();
+    const pw = Math.max(240, Math.min(this.garageMaxW() - 36, 560));
+    this.preview.render(s.build, pw, Math.round(pw * 0.62));
+    const preview = el('div', { class: 'preview' }, this.preview.canvas,
+      el('p', null, 'Firing coverage. Each cone shows where a weapon can hit; rings are 360° turrets. Gaps are where enemies reach you unopposed. Tap a weapon twice to turn it.'));
 
     // right column
     const exp = T.gridExpansions.find(g => g.r === s.gridR + 1);

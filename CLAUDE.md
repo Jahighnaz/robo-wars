@@ -9,6 +9,6 @@ Reference implementation: `prototype/scrap-evolution.html`. Where code and proto
 - Before pushing: `npm test` and `npm run build`.
 
 Deviations from the master prompt, deliberately:
-- Rendering is Canvas 2D with pre-rendered glow sprites, not PixiJS (the prototype's renderer already hit 60 fps on iPad; swap is isolated to `src/render`).
+- Rendering is 3D with Three.js (not PixiJS), per the owner's request for a 2.5D look: a locked, tilted follow camera over a real 3D scene, instanced meshes, a neon edge shader and bloom. The sim stays 2D; sim (x, y) maps to world (x, z). Text, joystick and markers are on a 2D overlay canvas. All of it lives in `src/render/three`.
 - No ECS: plain object arrays with a spatial hash, as in the prototype.
 - The weapon duel (`npm run sim`) reports instead of failing CI; with the current bot Scattergun and Flamer sit below 60% and Mortar above 160% of the Autocannon, matching the doc's own finding that they need a balance pass.
