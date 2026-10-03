@@ -8,7 +8,7 @@ import { Preview3D } from '../render/three/preview3d';
 import { iconSvg } from '../render/icons';
 import { Joystick } from '../input/joystick';
 import { setMuted, shotSnd, snd, uiSnd, unlockAudio } from '../audio/audio';
-import { music, TRACKS, type Mood } from '../audio/music';
+import { jingle, music, type Mood } from '../audio/music';
 import { defaultSave, exportCode, importCode, type Save, type Settings } from '../persistence/save';
 import { persist } from '../persistence/storage';
 import {
@@ -183,24 +183,20 @@ export class App {
     requestAnimationFrame(t => this.frame(t));
   }
 
-  private nextTrack() {
-    const i = TRACKS.findIndex(t => t.id === this.settings.soundtrack);
-    this.settings.soundtrack = TRACKS[(i + 1) % TRACKS.length].id;
-    this.updateMusic();
-  }
-  private trackName() { return TRACKS.find(t => t.id === this.settings.soundtrack)!.name; }
-
   /** Menu theme in menus, the run track in a shift, the boss variant when a boss is out. */
   private updateMusic() {
     const run = this.run;
     const inRun = !!run && ['run', 'pause', 'cards', 'place'].includes(this.mode) && !run.over;
     const mood: Mood = !inRun ? 'menu' : run!.t >= T.runLength - 2 || run!.E.some(e => e.bossLv > 0) ? 'boss' : 'run';
     const ducked = inRun && this.mode !== 'run';
-    const track = this.settings.soundtrack;
-    const key = mood + ducked + track;
+    // heat: how many enemies are close to the truck (adds layers, not tempo)
+    let near = 0;
+    if (inRun) for (const e of run!.E) if (Math.hypot(e.x - run!.V.x, e.y - run!.V.y) < 340) near++;
+    const heat = near >= 18 ? 2 : near >= 8 ? 1 : 0;
+    const key = mood + ducked + heat;
     if (key === this.musicState) return;
     this.musicState = key;
-    music.setTrack(track);
+    music.setHeat(heat);
     music.setMood(mood);
     music.setDucked(ducked);
   }
@@ -447,10 +443,7 @@ export class App {
       el('h1', null, 'Settings'),
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
         toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
-        toggle('Music', 'Chiptune generated live. Starts after your first touch.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
-        el('button', { class: 'toggle', onclick: () => { this.nextTrack(); this.store(); uiSnd(); this.showSettings(); } },
-          el('div', { class: 'tl' }, 'Soundtrack', el('div', null, 'Arcade techno, a workshop swing or the cantina band. Tap to change.')),
-          el('span', { class: 'pick' }, this.trackName())),
+        toggle('Music', '"Shop Floor Fever": 8-bit arcade techno, generated live. Gets busier when they swarm you.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
         toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
         toggle('Firing arcs', 'Show where each tool fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
         toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
@@ -730,7 +723,6 @@ export class App {
       el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
         toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
         toggleBtn('Music', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
-        el('button', { class: 'btn sm ghost', onclick: () => { this.nextTrack(); this.store(); this.setMode('run'); this.showPause(); } }, 'Track: ' + this.trackName()),
         toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
         toggleBtn('Shake', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
       co && co.role === 'client' ? null : el('h2', null, 'Damage so far'),
@@ -834,8 +826,7 @@ export class App {
     box.replaceChildren(el('div', { class: 'tt-cup', html: CUP }), el('div', null,
       el('div', { class: 'tt-kind' }, batch.length > 1 ? batch.length + ' trophies unlocked' : (t.hidden ? 'Easter egg · ' : '') + t.tier + ' trophy unlocked'),
       el('div', { class: 'tt-title' }, batch.map(x => x.title).join(' · '))));
-    snd(t.tier === 'platinum' ? 1046 : t.tier === 'gold' ? 880 : 740, 0.35, 'triangle', 0.045);
-    setTimeout(() => snd(1175, 0.3, 'triangle', 0.035), 140);
+    jingle(t.tier);
     clearTimeout(this.trophyTimer);
     this.trophyTimer = window.setTimeout(() => this.dismissTrophy(), batch.length > 1 ? 4200 : 3000);
   }

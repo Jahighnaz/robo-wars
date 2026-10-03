@@ -7,7 +7,7 @@ A workshop-themed version of Scrap Evolution: Captain Charles rides his block-bu
 - **Tiers:** every block family has tier II and III versions (wheels, treads, air pads, plates, tape, batteries, magnets, repair, all six tools, the zapper) plus cab chassis upgrades (Pickup cab, Big rig cab). A tier unlocks when the previous tier reaches workshop Mk IV; workshop levels now go to Mk X; the grid expands to 11×11.
 - **Defence:** the Dust extractor / Spark gap / Force field emitter zaps enemy projectiles in range.
 - **Enemy fire:** bomb lobbers (landing-warning ring), rail spikes (aiming laser before the shot), homing rocket pods and scrap sprayers.
-- **Music:** three chiptune tracks generated live with Web Audio, each with menu, run and boss moods. "Shop Floor Fever" (90s arcade techno) is the default. "Vieni in officina" is a bouncy two-beat swing with a kazoo lead, in the spirit of Paolo Conte. "Cucina Band" is a fast dance-hall swing with clarinet and steel drum, in the spirit of a certain space cantina. Both are original tunes, not the songs that inspired them. Pick the track or turn music off in Settings or the pause menu.
+- **Music:** "Shop Floor Fever", a procedural 8-bit arcade-techno soundtrack (menu, run and boss moods) generated live with Web Audio. When enemies crowd the truck it layers on busier hats, an octave-doubled lead and stabs, without changing the tempo. Trophies get a short fanfare. Toggle in Settings or the pause menu.
 
 ### Crew, records and trophies
 

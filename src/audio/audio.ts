@@ -16,6 +16,7 @@ export function unlockAudio(): void {
 }
 
 export function setMuted(m: boolean): void { muted = m; }
+export const isMuted = () => muted;
 
 export function snd(freq: number, dur: number, type: OscillatorType = 'square', vol = 0.03): void {
   if (!ac || !master || muted) return;
