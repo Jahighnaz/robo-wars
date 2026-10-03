@@ -1,0 +1,20 @@
+{
+  "cellSize": 18,
+  "enemyCell": 9,
+  "arena": 2200,
+  "runLength": 300,
+  "maxEnemies": 220,
+  "teslaFalloff": 0.9,
+  "teslaJump": 175,
+  "waveLength": 30,
+  "breatherEvery": 4,
+  "miniBossTimes": [120, 240],
+  "budgetCap": 60,
+  "lootChance": 0.4,
+  "deathLootKeep": 0.5,
+  "workshopMax": 5,
+  "gridExpansions": [
+    { "r": 3, "cost": { "shard": 3, "scrap": 150 } },
+    { "r": 4, "cost": { "shard": 10, "scrap": 400, "copper": 100 } }
+  ]
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Scrap Evo">
+  <meta name="theme-color" content="#05060b">
+  <meta name="description" content="Build a machine from blocks, survive the waves, and face worlds that evolve against the way you play.">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <title>Scrap Evolution</title>
+</head>
+<body>
+  <canvas id="cv"></canvas>
+  <div id="fxlayer" aria-hidden="true"></div>
+
+  <div id="hud" class="off">
+    <div class="hud-top">
+      <div class="hud-clock">
+        <div id="hTime">5:00</div>
+        <div id="hWave">WAVE 1</div>
+      </div>
+      <div class="hud-xp">
+        <div class="hud-xp-row"><span id="hLvl">LV 1</span><span id="hKills">0 KILLS</span></div>
+        <div id="xpwrap"><div id="xpbar"></div></div>
+      </div>
+      <button id="pauseBtn" class="iconbtn" aria-label="Pause">
+        <svg width="18" height="18" viewBox="0 0 18 18"><rect x="3" y="2" width="4" height="14" fill="currentColor"/><rect x="11" y="2" width="4" height="14" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <div id="bossbar"><div id="bossname"></div><div id="bossbg"><div id="bossfill"></div></div></div>
+    <div class="hud-bottom">
+      <div id="cabwrap">
+        <div class="hud-label">CAB INTEGRITY</div>
+        <div id="cabbarbg"><div id="cabbar"></div></div>
+      </div>
+      <div id="hLoot"></div>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="ui"></div>
+  <div id="update" class="off">
+    <span>Update available</span>
+    <button id="updateBtn" class="btn primary sm">Restart</button>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

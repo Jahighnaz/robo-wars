@@ -1,0 +1,8 @@
+{
+  "scrap":   { "name": "Scrap", "color": "#e8d27a" },
+  "copper":  { "name": "Copper", "color": "#ff8a3d" },
+  "resin":   { "name": "Bio-resin", "color": "#5dff8a" },
+  "crystal": { "name": "Cryo-crystal", "color": "#4de8ff" },
+  "pyro":    { "name": "Pyro-ore", "color": "#ff3d5a" },
+  "shard":   { "name": "Core shard", "color": "#c77dff" }
+}

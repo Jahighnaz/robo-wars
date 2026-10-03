@@ -1,0 +1,1602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scrap Evo">
+<meta name="theme-color" content="#1f262e">
+<title>Scrap Evolution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#1f262e; --panel:#28313b; --panel2:#323d49; --steel:#5b6673; --line:#3f4b58;
+  --text:#ece7dc; --muted:#a3aab3; --yellow:#f6c344; --oxide:#c4533a; --teal:#4fa69a;
+  --font:'Chakra Petch', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --ground:#1f262e; --text:#ece7dc; } }
+:root[data-theme="dark"]{ --ground:#1f262e; --text:#ece7dc; }
+html{ scroll-padding-top:env(safe-area-inset-top,0px); }
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ height:100%; margin:0; background:var(--ground); color:var(--text); font-family:var(--font); overflow:hidden;
+  touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; overscroll-behavior:none; }
+canvas#cv{ position:fixed; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+button{ font:inherit; color:inherit; cursor:pointer; touch-action:manipulation; }
+button:focus-visible{ outline:2px solid var(--yellow); outline-offset:2px; }
+
+/* HUD */
+#hud{ position:fixed; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top,0px) + 10px) calc(env(safe-area-inset-right,0px) + 14px) 0 calc(env(safe-area-inset-left,0px) + 14px);
+  display:none; pointer-events:none; }
+#hud.on{ display:block; }
+.hudrow{ display:flex; align-items:center; gap:12px; }
+#hTime{ font-size:22px; font-weight:700; min-width:64px; }
+#hWave{ font-size:14px; color:var(--muted); }
+#xpwrap{ flex:1; height:10px; background:rgba(0,0,0,.35); border-radius:5px; overflow:hidden; position:relative; }
+#xpbar{ height:100%; width:0; background:var(--teal); }
+#hLvl{ font-size:15px; font-weight:700; min-width:52px; text-align:right; }
+#pauseBtn{ pointer-events:auto; width:44px; height:44px; border-radius:12px; border:1px solid var(--line); background:rgba(40,49,59,.85); font-size:18px; font-weight:700; }
+#hBottom{ position:fixed; left:0; right:0; bottom:0; padding:0 calc(env(safe-area-inset-right,0px) + 14px) calc(env(safe-area-inset-bottom,0px) + 12px) calc(env(safe-area-inset-left,0px) + 14px);
+  display:none; pointer-events:none; gap:14px; align-items:flex-end; flex-wrap:wrap; }
+#hBottom.on{ display:flex; }
+#cabwrap{ width:180px; }
+#cablbl{ font-size:12px; color:var(--muted); margin-bottom:3px; }
+#cabbarbg{ height:10px; background:rgba(0,0,0,.35); border-radius:5px; overflow:hidden; }
+#cabbar{ height:100%; width:100%; background:var(--yellow); }
+#hLoot{ display:flex; gap:10px; font-size:14px; flex-wrap:wrap; }
+.lootchip{ display:flex; align-items:center; gap:4px; background:rgba(0,0,0,.3); padding:3px 8px; border-radius:8px; }
+.dot{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+#bossbar{ position:fixed; left:50%; transform:translateX(-50%); top:calc(env(safe-area-inset-top,0px) + 64px); width:min(520px,80vw); display:none; pointer-events:none; text-align:center; }
+#bossbar.on{ display:block; }
+#bossname{ font-size:14px; font-weight:700; color:var(--oxide); margin-bottom:3px; }
+#bossbg{ height:8px; background:rgba(0,0,0,.4); border-radius:4px; overflow:hidden; }
+#bossfill{ height:100%; background:var(--oxide); width:100%; }
+#toast{ position:fixed; left:50%; top:calc(env(safe-area-inset-top,0px) + 96px); transform:translateX(-50%); background:rgba(31,38,46,.92); border:1px solid var(--line);
+  padding:8px 16px; border-radius:10px; font-size:15px; opacity:0; transition:opacity .25s; pointer-events:none; max-width:86vw; text-align:center; }
+#toast.on{ opacity:1; }
+
+/* Overlay screens */
+#ui{ position:fixed; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
+  padding:calc(env(safe-area-inset-top,0px) + 18px) calc(env(safe-area-inset-right,0px) + 18px) calc(env(safe-area-inset-bottom,0px) + 24px) calc(env(safe-area-inset-left,0px) + 18px); }
+#ui.hidden{ display:none; }
+#ui.dim{ background:rgba(20,25,31,.82); }
+#ui.solid{ background:var(--ground); }
+.wrap{ max-width:980px; margin:0 auto; }
+h1{ font-size:clamp(34px,6vw,56px); line-height:1; margin:8px 0 4px; letter-spacing:.5px; }
+h1 .bolt{ color:var(--yellow); }
+h2{ font-size:22px; margin:22px 0 10px; }
+h3{ font-size:17px; margin:0 0 6px; }
+p{ line-height:1.45; }
+.sub{ color:var(--muted); font-size:15px; margin:0 0 16px; max-width:60ch; }
+.btn{ border:1px solid var(--line); background:var(--panel2); border-radius:12px; padding:12px 18px; font-size:16px; font-weight:700; min-height:48px; }
+.btn.primary{ background:var(--yellow); color:#26200c; border-color:var(--yellow); }
+.btn.ghost{ background:transparent; }
+.btn:disabled{ opacity:.4; }
+.row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+.resbar{ display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 4px; }
+.res{ display:flex; align-items:center; gap:6px; background:var(--panel); border-radius:9px; padding:6px 10px; font-size:14px; }
+.worlds{ display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:14px; }
+.world{ background:var(--panel); border-radius:16px; padding:16px; border:1px solid var(--line); display:flex; flex-direction:column; gap:10px; }
+.world .meta{ font-size:13px; color:var(--muted); }
+.profile{ display:flex; flex-direction:column; gap:4px; }
+.prow{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); }
+.prow .lbl{ width:86px; }
+.prow .bar{ height:6px; border-radius:3px; }
+.species{ font-size:13px; color:var(--muted); line-height:1.5; }
+.species b{ color:var(--text); font-weight:500; }
+details summary{ cursor:pointer; font-size:14px; color:var(--teal); }
+.cards{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:12px; }
+.card{ text-align:left; background:var(--panel); border:2px solid var(--line); border-radius:16px; padding:18px; min-height:150px; display:flex; flex-direction:column; gap:8px; }
+.card .kind{ font-size:13px; color:var(--muted); }
+.card .ttl{ font-size:20px; font-weight:700; }
+.card .dsc{ font-size:15px; color:var(--muted); line-height:1.4; }
+.card.k-block{ border-color:var(--yellow); }
+.card.k-up{ border-color:var(--teal); }
+.card.k-repair{ border-color:#7bc96f; }
+.center{ text-align:center; }
+.mid{ min-height:100%; display:flex; flex-direction:column; justify-content:center; }
+
+/* Build grid (garage + placement) */
+.gridwrap{ display:flex; justify-content:center; padding:14px; background:
+  radial-gradient(circle, rgba(236,231,220,.09) 1.2px, transparent 1.4px) 0 0/16px 16px, var(--panel); border-radius:18px; border:1px solid var(--line); }
+.bgrid{ display:grid; gap:4px; }
+.cell{ width:var(--cs); height:var(--cs); border-radius:8px; border:1px solid rgba(255,255,255,.06); background:rgba(0,0,0,.18); position:relative;
+  display:flex; align-items:center; justify-content:center; font-size:calc(var(--cs) * .3); font-weight:700; padding:0; }
+.cell.valid{ border:2px dashed var(--yellow); background:rgba(246,195,68,.08); }
+.cell.blk{ color:#1b1e22; border:1px solid rgba(0,0,0,.35); }
+.cell.cab{ box-shadow:inset 0 0 0 3px rgba(0,0,0,.35); }
+.cell.fresh{ outline:3px solid var(--yellow); outline-offset:1px; }
+.cell .arw{ position:absolute; top:2px; left:50%; width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:8px solid rgba(0,0,0,.55); transform-origin:50% calc(var(--cs) / 2 - 2px); margin-left:-6px; }
+.cell .hpb{ position:absolute; left:4px; right:4px; bottom:3px; height:3px; background:rgba(0,0,0,.35); border-radius:2px; overflow:hidden; }
+.cell .hpb i{ display:block; height:100%; background:#1b1e22; }
+.fwd{ text-align:center; font-size:13px; color:var(--muted); margin-bottom:6px; }
+.garage{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:start; }
+@media (max-width:760px){ .garage{ grid-template-columns:1fr; } }
+.tools{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.tool{ border:1px solid var(--line); background:var(--panel2); border-radius:10px; padding:8px 10px; font-size:14px; display:flex; gap:6px; align-items:center; min-height:44px; }
+.tool.sel{ border-color:var(--yellow); box-shadow:0 0 0 2px var(--yellow); }
+.tool .sw{ width:14px; height:14px; border-radius:4px; }
+.stats{ font-size:14px; color:var(--muted); margin-top:12px; line-height:1.6; }
+.stats b{ color:var(--text); }
+.warn{ color:var(--oxide); }
+.craft{ display:flex; flex-direction:column; gap:8px; }
+.crow{ display:flex; align-items:center; gap:10px; background:var(--panel); border-radius:12px; padding:10px 12px; border:1px solid var(--line); }
+.crow .nm{ flex:1; min-width:0; }
+.crow .nm div{ font-size:12px; color:var(--muted); line-height:1.35; }
+.cost{ display:flex; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:3px; }
+.crow .btn{ padding:8px 12px; min-height:40px; font-size:14px; }
+.log{ background:var(--panel); border-radius:14px; padding:14px 16px; border:1px solid var(--line); font-size:15px; line-height:1.55; }
+.log div{ padding:3px 0; }
+textarea{ width:100%; min-height:110px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px; font:13px ui-monospace,monospace; user-select:text; -webkit-user-select:text; touch-action:auto; }
+.rep{ display:flex; flex-direction:column; gap:8px; }
+.rrow{ display:grid; grid-template-columns:150px 1fr 120px; gap:10px; align-items:center; font-size:14px; }
+.rrow .nm{ display:flex; align-items:center; gap:8px; min-width:0; }
+.rrow .track{ height:12px; background:rgba(0,0,0,.3); border-radius:6px; overflow:hidden; }
+.rrow .fill{ height:100%; border-radius:6px; }
+.rrow .num{ text-align:right; color:var(--muted); font-variant-numeric:tabular-nums; }
+.rrow .num b{ color:var(--text); }
+@media (max-width:520px){ .rrow{ grid-template-columns:110px 1fr 92px; font-size:13px; } }
+.mk{ font-size:12px; color:var(--yellow); margin-left:4px; }
+.howto{ font-size:15px; color:var(--muted); line-height:1.55; max-width:62ch; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="hud">
+  <div class="hudrow">
+    <div><div id="hTime">0:00</div><div id="hWave">Wave 1</div></div>
+    <div id="xpwrap"><div id="xpbar"></div></div>
+    <div id="hLvl">Lv 1</div>
+    <button id="pauseBtn" aria-label="Pause">II</button>
+  </div>
+</div>
+<div id="bossbar"><div id="bossname"></div><div id="bossbg"><div id="bossfill"></div></div></div>
+<div id="hBottom">
+  <div id="cabwrap"><div id="cablbl">Cab integrity</div><div id="cabbarbg"><div id="cabbar"></div></div></div>
+  <div id="hLoot"></div>
+</div>
+<div id="toast"></div>
+<div id="ui" class="solid"></div>
+
+<script>
+'use strict';
+/* ======================= Utilities ======================= */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+function angDiff(a, b) { let d = (b - a) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; }
+function mulberry(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+let R = mulberry((Date.now() ^ 0x5bd1e995) >>> 0);
+const rand = (a, b) => a + (b - a) * R();
+const pick = arr => arr[Math.floor(R() * arr.length)];
+function wpick(obj) { let s = 0; for (const k in obj) s += Math.max(0, obj[k]); let r = R() * s; for (const k in obj) { r -= Math.max(0, obj[k]); if (r <= 0) return k; } return Object.keys(obj)[0]; }
+function swapRemove(arr, i) { arr[i] = arr[arr.length - 1]; arr.pop(); }
+const fmtTime = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+const roman = n => ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'][clamp(n - 1, 0, 11)];
+
+/* ======================= Data ======================= */
+const CS = 18;          // player block size (world units)
+const EC = 9;           // enemy block size
+const STEP = 1 / 60;
+const ARENA = 2200;     // half size of the arena
+const RUN_LEN = 300;    // boss arrives at 5:00
+const MAX_E = 220;
+const TESLA_FALLOFF = 0.9;  // damage share for each chained jump
+const TESLA_JUMP = 175;     // max distance of a chain jump
+
+const RES = {
+  scrap:  { name: 'Scrap',        color: '#b8a07a' },
+  copper: { name: 'Copper',       color: '#e07b39' },
+  resin:  { name: 'Bio-resin',    color: '#7bc96f' },
+  crystal:{ name: 'Cryo-crystal', color: '#7fd3f0' },
+  pyro:   { name: 'Pyro-ore',     color: '#ff5a3c' },
+  shard:  { name: 'Core shard',   color: '#d78bff' },
+};
+const DTYPES = ['kinetic', 'explosive', 'fire', 'energy', 'electric'];
+const DCOL = { kinetic: '#ffd27a', explosive: '#ff9a4a', fire: '#ff6a3c', energy: '#7fe3ff', electric: '#c3b2ff' };
+
+// Player blocks. dir = weapon follows block facing. arc in degrees.
+const B = {
+  cab:    { name: 'Cab', ab: 'C', cat: 'cab', hp: 170, mass: 3, power: 6, color: '#f6c344', desc: 'The core. If it breaks, the run ends.' },
+  wheel:  { name: 'Wheel', ab: 'W', cat: 'prop', hp: 45, mass: 1, thrust: 7, turn: 3.6, color: '#8d96a3', desc: 'Light and quick. Slow in mud.', cost: { scrap: 20 } },
+  track:  { name: 'Track', ab: 'T', cat: 'prop', hp: 85, mass: 2, thrust: 9, turn: 4.6, mud: true, color: '#6c7684', desc: 'Ignores mud and grips on ice.', cost: { scrap: 30, copper: 10 } },
+  hover:  { name: 'Hover pad', ab: 'H', cat: 'prop', hp: 30, mass: 0.6, thrust: 6, turn: 4.0, hover: true, power: -1, color: '#5ad1c8', desc: 'Floats over lava.', cost: { crystal: 15, copper: 10 } },
+  armor:  { name: 'Armor plate', ab: 'A', cat: 'armor', hp: 120, mass: 2, color: '#b7bcc4', desc: 'Absorbs 40% of hits on neighbouring blocks.', cost: { scrap: 25 } },
+  regen:  { name: 'Regen moss', ab: 'M', cat: 'armor', hp: 80, mass: 1, regen: 4, color: '#7bc96f', desc: 'Armor that regrows 4 HP/s.', cost: { resin: 20, scrap: 10 } },
+  cannon: { name: 'Autocannon', ab: 'AC', cat: 'weapon', hp: 50, mass: 1.5, power: -1, dir: true, color: '#e8cf7a', desc: 'Steady kinetic fire in its facing. Neighbouring cannons fire faster.',
+            w: { type: 'kinetic', dmg: 11, rate: 4.5, range: 300, arc: 130, speed: 680, spread: 0.06 }, cost: { scrap: 30 } },
+  shotgun:{ name: 'Scattergun', ab: 'SG', cat: 'weapon', hp: 55, mass: 1.5, power: -1, dir: true, color: '#d9a85a', desc: 'Close-range pellet burst.',
+            w: { type: 'kinetic', dmg: 10, rate: 1.6, range: 230, arc: 140, speed: 600, spread: 0.42, pellets: 6 }, cost: { scrap: 35 } },
+  laser:  { name: 'Laser', ab: 'L', cat: 'weapon', hp: 40, mass: 1, power: -2, dir: true, color: '#7fe3ff', desc: 'Instant long-range energy beam. +20% damage per adjacent battery.',
+            w: { type: 'energy', dmg: 30, rate: 1.4, range: 360, arc: 70, beam: true }, cost: { crystal: 20, copper: 10 } },
+  tesla:  { name: 'Tesla coil', ab: 'Z', cat: 'weapon', hp: 45, mass: 1.5, power: -2, color: '#c3b2ff', desc: '360° lightning that chains to 3 more enemies. +1 chain per adjacent battery.',
+            w: { type: 'electric', dmg: 13, rate: 1.2, range: 220, arc: 360, chain: 3 }, cost: { copper: 30 } },
+  flamer: { name: 'Flamer', ab: 'F', cat: 'weapon', hp: 50, mass: 1.5, power: -1, dir: true, color: '#ff7a4a', desc: 'Short cone of fire that sets enemies burning.',
+            w: { type: 'fire', dmg: 7, rate: 10, range: 185, arc: 80, speed: 340, spread: 0.3, burn: 16, life: 0.55, pierce: 2 }, cost: { pyro: 25, scrap: 10 } },
+  mortar: { name: 'Mortar', ab: 'MO', cat: 'weapon', hp: 60, mass: 2.5, power: -1, color: '#ff9a4a', desc: '360° lobbed shells with splash damage.',
+            w: { type: 'explosive', dmg: 26, rate: 0.7, range: 400, arc: 360, lob: true, aoe: 70 }, cost: { pyro: 20, scrap: 20 } },
+  battery:{ name: 'Battery', ab: 'B', cat: 'energy', hp: 40, mass: 1, power: 4, color: '#9be37b', desc: '+4 power. Boosts adjacent lasers and Tesla coils.', cost: { copper: 20 } },
+  magnet: { name: 'Magnet', ab: 'MG', cat: 'util', hp: 40, mass: 1, magnet: 90, color: '#e05a7a', desc: '+90 pickup range.', cost: { copper: 15, scrap: 10 } },
+  repair: { name: 'Repair arm', ab: 'R', cat: 'util', hp: 45, mass: 1, power: -1, repair: 7, color: '#f0e68c', desc: 'Repairs adjacent blocks by 7 HP/s.', cost: { resin: 25 } },
+};
+const PLACEABLE = Object.keys(B).filter(k => k !== 'cab');
+const UP_MAX = 5;
+const upL = t => (save && save.up && save.up[t]) || 0;
+function upCost(t) {
+  const L = upL(t); const base = B[t].cost || { scrap: 50, copper: 20 }; const c = {};
+  for (const r in base) c[r] = Math.ceil(base[r] * 1.5 * (L + 1));
+  if (L >= 2) c.shard = L - 1;
+  return c;
+}
+function upEffect(t) {
+  const d = B[t]; const parts = ['+20% HP'];
+  if (d.w) parts.push('+15% damage', '+5% fire rate');
+  if (d.thrust) parts.push('+8% thrust');
+  if (t === 'battery' || t === 'cab') parts.push('+1 power');
+  if (d.magnet) parts.push('+25 pickup range');
+  if (d.regen || d.repair) parts.push('+25% healing');
+  return parts.join(', ') + ' per level';
+}
+
+// Enemy blocks (enemies are built from the same idea)
+const EB = {
+  core:     { hp: 20, mass: 1,   color: '#c4533a', mat: 'scrap' },
+  spike:    { hp: 8,  mass: 0.5, melee: 6,  color: '#ece7dc', mat: 'scrap' },
+  plate:    { hp: 30, mass: 1.5, color: '#7d848d', mat: 'scrap' },
+  gun:      { hp: 10, mass: 0.8, gun: 6,   color: '#e3c25a', mat: 'copper' },
+  boomer:   { hp: 6,  mass: 0.6, boom: 24, color: '#ff7a3c', mat: 'pyro' },
+  thruster: { hp: 6,  mass: 0.4, thrust: 1, color: '#6fc3ff', mat: 'copper' },
+  fireplate:{ hp: 22, mass: 1.2, res: { fire: 0.4 }, color: '#b5462e', mat: 'pyro' },
+  insul:    { hp: 22, mass: 1.2, res: { electric: 0.25, energy: 0.2 }, color: '#6aa9c9', mat: 'crystal' },
+  reactive: { hp: 24, mass: 1.4, res: { explosive: 0.4, kinetic: 0.15 }, color: '#8fa36a', mat: 'resin' },
+};
+const EB_LABEL = { core: 'core', spike: 'spike', plate: 'plate', gun: 'gun', boomer: 'bomb', thruster: 'thruster', fireplate: 'heat plating', insul: 'insulation', reactive: 'reactive plating' };
+
+const WORLDS = {
+  rust: {
+    name: 'Rustlands', hazard: 'mud', hazardText: 'Mud pools slow wheels. Tracks drive through.',
+    ground: '#262320', dot: '#3a332b', haz: 'rgba(120,88,52,0.55)',
+    res: { scrap: 6, copper: 2, resin: 2, crystal: 0.4, pyro: 0.8 },
+    seeds: [
+      { name: 'Skitter Ripper', cells: [[0,0,'core'],[0,-1,'spike']] },
+      { name: 'Rust Hulk', cells: [[0,0,'core'],[0,-1,'spike'],[-1,0,'plate'],[1,0,'plate'],[0,1,'plate']] },
+      { name: 'Bolt Spitter', cells: [[0,0,'core'],[0,-1,'gun'],[0,1,'thruster']], pref: 200 },
+      { name: 'Fuse Popper', cells: [[0,0,'core'],[0,-1,'boomer'],[0,1,'thruster'],[1,0,'thruster']] },
+      { name: 'Dart Ripper', cells: [[0,0,'core'],[0,-1,'spike'],[0,1,'thruster']] },
+    ],
+  },
+  tundra: {
+    name: 'Crystal Tundra', hazard: 'ice', hazardText: 'Ice sheets make you drift. Tracks keep grip.',
+    ground: '#1d2630', dot: '#2c3a48', haz: 'rgba(160,215,240,0.22)',
+    res: { scrap: 1.6, copper: 1.2, resin: 0.6, crystal: 6, pyro: 0.4 },
+    seeds: [
+      { name: 'Frost Ripper', cells: [[0,0,'core'],[0,-1,'spike'],[0,1,'insul']] },
+      { name: 'Glacier Hulk', cells: [[0,0,'core'],[0,-1,'spike'],[-1,0,'insul'],[1,0,'plate'],[0,1,'plate']] },
+      { name: 'Shard Spitter', cells: [[0,0,'core'],[0,-1,'gun'],[1,0,'gun'],[0,1,'thruster']], pref: 220 },
+      { name: 'Rime Dart', cells: [[0,0,'core'],[0,-1,'spike'],[0,1,'thruster'],[-1,0,'thruster']] },
+      { name: 'Cold Popper', cells: [[0,0,'core'],[0,-1,'boomer'],[0,1,'thruster']] },
+    ],
+  },
+  magma: {
+    name: 'Magma Rift', hazard: 'lava', hazardText: 'Lava burns your blocks. Hover pads float over it.',
+    ground: '#291c1a', dot: '#3d2723', haz: 'rgba(255,90,40,0.38)',
+    res: { scrap: 2, copper: 1, resin: 0.4, crystal: 0.3, pyro: 6 },
+    seeds: [
+      { name: 'Cinder Ripper', cells: [[0,0,'core'],[0,-1,'spike'],[0,1,'fireplate']] },
+      { name: 'Slag Hulk', cells: [[0,0,'core'],[0,-1,'spike'],[-1,0,'fireplate'],[1,0,'fireplate'],[0,1,'plate']] },
+      { name: 'Ember Spitter', cells: [[0,0,'core'],[0,-1,'gun'],[0,1,'thruster']], pref: 190 },
+      { name: 'Magma Popper', cells: [[0,0,'core'],[0,-1,'boomer'],[-1,0,'boomer'],[0,1,'thruster'],[1,0,'thruster']] },
+      { name: 'Ash Dart', cells: [[0,0,'core'],[0,-1,'spike'],[0,1,'thruster']] },
+    ],
+  },
+};
+
+const PERKS = [
+  { id: 'rate',   name: 'Overclock',       desc: 'All weapons fire 15% faster.',            apply: m => { m.rate += 0.15; } },
+  { id: 'range',  name: 'Long barrels',    desc: '+15% weapon range.',                       apply: m => { m.range += 0.15; } },
+  { id: 'magnet', name: 'Scrap magnet',    desc: '+60 pickup range.',                        apply: m => { m.magnet += 60; } },
+  { id: 'speed',  name: 'Nitro lines',     desc: '+12% top speed.',                          apply: m => { m.speed += 0.12; } },
+  { id: 'xp',     name: 'Data core',       desc: '+20% experience.',                         apply: m => { m.xp += 0.2; } },
+  { id: 'heal',   name: 'Salvage welder',  desc: 'Every kill repairs a damaged block by 2 HP.', apply: m => { m.heal += 2; } },
+  { id: 'armor',  name: 'Hardened welds',  desc: 'Take 10% less damage.',                    apply: m => { m.armor = Math.min(0.5, m.armor + 0.1); } },
+  { id: 'regen',  name: 'Nanite paint',    desc: 'Every block regenerates 1 HP/s.',          apply: m => { m.regen += 1; } },
+  { id: 'crit',   name: 'Targeting AI',    desc: '+10% chance to deal double damage.',       apply: m => { m.crit = Math.min(0.6, m.crit + 0.1); } },
+  { id: 'kin',    name: 'Tungsten rounds', desc: '+25% kinetic damage.',                     apply: m => { m.dmg.kinetic += 0.25; } },
+  { id: 'fire',   name: 'Napalm mix',      desc: '+30% fire damage.',                        apply: m => { m.dmg.fire += 0.3; } },
+  { id: 'elec',   name: 'Supercapacitors', desc: '+30% electric damage.',                    apply: m => { m.dmg.electric += 0.3; } },
+  { id: 'energy', name: 'Focusing lens',   desc: '+30% energy damage.',                      apply: m => { m.dmg.energy += 0.3; } },
+  { id: 'boom',   name: 'Shaped charges',  desc: '+30% explosive damage.',                   apply: m => { m.dmg.explosive += 0.3; } },
+];
+
+/* ======================= Save ======================= */
+const SAVE_KEY = 'scrapEvolution.v1';
+let save = null;
+
+function newWorldState(k) {
+  const w = { gen: 0, tier: 1, runs: 0, wins: 0, era: 1, res: {}, species: [], log: [] };
+  for (const t of DTYPES) w.res[t] = 0;
+  for (const s of WORLDS[k].seeds) w.species.push(makeSpecies(s.name, s.cells.map(c => c.slice()), s.pref || 0, 0));
+  return w;
+}
+function makeSpecies(name, cells, pref, born) {
+  if (!save) save = { nextId: 1 };
+  const sp = { id: save.nextId++, name, cells, pref, spd: 1, pop: 1, born, st: { n: 0, dmg: 0, life: 0 } };
+  compileSpecies(sp);
+  return sp;
+}
+function defaultSave() {
+  save = { v: 1, nextId: 1 };
+  const s = save;
+  s.res = { scrap: 60, copper: 0, resin: 0, crystal: 0, pyro: 0, shard: 0 };
+  s.inv = { armor: 2, shotgun: 1 };
+  s.build = [
+    { x: 0, y: 0, t: 'cab', r: 0 }, { x: 0, y: -1, t: 'cannon', r: 0 },
+    { x: -1, y: 0, t: 'wheel', r: 0 }, { x: 1, y: 0, t: 'wheel', r: 0 },
+    { x: -1, y: 1, t: 'wheel', r: 0 }, { x: 0, y: 1, t: 'battery', r: 0 }, { x: 1, y: 1, t: 'wheel', r: 0 },
+    { x: 0, y: 2, t: 'cannon', r: 2 },
+  ];
+  s.gridR = 2; s.up = {}; s.worlds = {}; s.runs = 0; s.wins = 0; s.muted = false; s.seenHelp = false; s.discovered = 0;
+  for (const k in WORLDS) s.worlds[k] = newWorldState(k);
+  return s;
+}
+function validSave(s) {
+  if (!s || s.v !== 1 || !s.res || !s.inv || !Array.isArray(s.build) || !s.worlds) return false;
+  if (!s.build.some(b => b.t === 'cab' && b.x === 0 && b.y === 0)) return false;
+  for (const k in WORLDS) { const w = s.worlds[k]; if (!w || !Array.isArray(w.species) || w.species.length < 1 || !w.res) return false; }
+  for (const b of s.build) if (!B[b.t]) return false;
+  return true;
+}
+function hydrate(s) {
+  for (const r in RES) if (typeof s.res[r] !== 'number') s.res[r] = 0;
+  for (const k in WORLDS) for (const sp of s.worlds[k].species) { if (!sp.st) sp.st = { n: 0, dmg: 0, life: 0 }; compileSpecies(sp); }
+  if (!s.nextId) s.nextId = 1000;
+  if (!s.up || typeof s.up !== 'object') s.up = {};
+  return s;
+}
+function loadSave() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) { const s = JSON.parse(raw); if (validSave(s)) { save = hydrate(s); return; } }
+  } catch (e) { /* storage unavailable: play without persistence */ }
+  defaultSave();
+}
+function serial() {
+  return JSON.stringify(save, (k, v) => (k === 'c' ? undefined : v));
+}
+function persist() { try { localStorage.setItem(SAVE_KEY, serial()); } catch (e) { /* ignore */ } }
+function exportCode() { return btoa(unescape(encodeURIComponent(serial()))); }
+function importCode(code) {
+  const s = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+  if (!validSave(s)) throw new Error('Not a Scrap Evolution save');
+  save = hydrate(s); persist();
+}
+
+/* ======================= Species / enemy compile ======================= */
+function compileSpecies(sp) {
+  let hp = 0, mass = 0, thrust = 0, melee = 4, gun = 0, boom = 0, ext = 0; const res = {};
+  for (const c of sp.cells) {
+    const d = EB[c[2]]; if (!d) continue;
+    hp += d.hp; mass += d.mass;
+    if (d.thrust) thrust += d.thrust; if (d.melee) melee += d.melee; if (d.gun) gun += d.gun; if (d.boom) boom += d.boom;
+    if (d.res) for (const t in d.res) res[t] = Math.min(0.7, (res[t] || 0) + d.res[t]);
+    ext = Math.max(ext, Math.abs(c[0]), Math.abs(c[1]));
+  }
+  const speed = (40 + 160 * (1 + thrust) / (2 + mass)) * (sp.spd || 1);
+  const cost = 0.6 + hp / 40 + (melee + gun * 1.5 + boom * 0.3) / 15;
+  sp.c = { hp, mass, speed, melee, gun, boom, res, ext, cost };
+}
+function describeSpecies(sp) {
+  const n = {};
+  for (const c of sp.cells) if (c[2] !== 'core') n[c[2]] = (n[c[2]] || 0) + 1;
+  const parts = Object.keys(n).map(k => (n[k] > 1 ? n[k] + '× ' : '') + EB_LABEL[k]);
+  return parts.length ? parts.join(', ') : 'bare core';
+}
+
+/* ======================= Audio ======================= */
+let AC = null, lastShotSnd = 0;
+function audioUnlock() {
+  if (!AC) { try { const C = window.AudioContext || window.webkitAudioContext; if (C) AC = new C(); } catch (e) { AC = null; } }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function snd(freq, dur, type, vol) {
+  if (!AC || save.muted) return;
+  try {
+    const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'square'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * 0.45), t + dur);
+    g.gain.setValueAtTime(vol || 0.03, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) { /* ignore */ }
+}
+function shotSnd(f) { if (G && G.t - lastShotSnd > 0.06) { lastShotSnd = G.t; snd(f, 0.06, 'square', 0.012); } }
+
+/* ======================= Run state ======================= */
+let G = null;      // current run
+let V = null;      // player vehicle
+let E = [], PB = [], EBL = [], PK = [], FX = [], BEAMS = [], DEP = [], HZ = [];
+let mode = 'hub';  // hub | garage | run | cards | place | pause | debrief
+let shake = 0;
+
+function freshMods() { return { dmg: { kinetic: 0, explosive: 0, fire: 0, energy: 0, electric: 0 }, rate: 0, range: 0, magnet: 0, speed: 0, xp: 0, heal: 0, armor: 0, regen: 0, crit: 0 }; }
+const bkey = (x, y) => (x + 32) * 128 + (y + 32);
+
+function makeVehicle(build) {
+  const v = { x: 0, y: 0, h: -Math.PI / 2, vx: 0, vy: 0, list: [], map: new Map(), s: null, flash: 0 };
+  for (const b of build) addBlock(v, b.x, b.y, b.t, b.r);
+  return v;
+}
+function addBlock(v, x, y, t, r) {
+  const d = B[t];
+  const mx = Math.round(d.hp * (1 + 0.2 * upL(t)));
+  const b = { x, y, t, r: r || 0, hp: mx, max: mx, cd: rand(0, 0.3), wx: 0, wy: 0, fl: 0, syn: { chain: 0, rateM: 1, dmgM: 1 } };
+  v.list.push(b); v.map.set(bkey(x, y), b);
+  return b;
+}
+function getB(v, x, y) { return v.map.get(bkey(x, y)); }
+function neighbours(v, b) {
+  const out = [];
+  const a = getB(v, b.x + 1, b.y), c = getB(v, b.x - 1, b.y), e = getB(v, b.x, b.y + 1), f = getB(v, b.x, b.y - 1);
+  if (a) out.push(a); if (c) out.push(c); if (e) out.push(e); if (f) out.push(f);
+  return out;
+}
+function reachable(v) {
+  const cab = getB(v, 0, 0); const seen = new Set(); if (!cab) return seen;
+  const st = [cab]; seen.add(cab);
+  while (st.length) { const b = st.pop(); for (const n of neighbours(v, b)) if (!seen.has(n)) { seen.add(n); st.push(n); } }
+  return seen;
+}
+function compileVehicle(v, mods) {
+  const s = { mass: 0, thrust: 0, turnW: 0, power: 0, demand: 0, magnet: 100 + mods.magnet, trackT: 0, hoverT: 0, radius: CS, weapons: [], props: 0 };
+  for (const b of v.list) {
+    const d = B[b.t];
+    s.mass += d.mass;
+    const L = upL(b.t);
+    if (d.thrust) { const th = d.thrust * (1 + 0.08 * L); s.thrust += th; s.turnW += d.turn * th; s.props++; if (d.mud) s.trackT += th; if (d.hover) s.hoverT += th; }
+    if (d.power > 0) s.power += d.power + ((b.t === 'battery' || b.t === 'cab') ? L : 0); else if (d.power < 0) s.demand -= d.power;
+    if (d.magnet) s.magnet += d.magnet + 25 * L;
+    if (d.w) s.weapons.push(b);
+    const rr = Math.hypot(b.x, b.y) * CS + CS * 0.75; if (rr > s.radius) s.radius = rr;
+  }
+  s.turn = s.thrust ? s.turnW / s.thrust : 1.6;
+  s.speed = (s.thrust ? clamp(90 * s.thrust / s.mass, 40, 290) : 28) * (1 + mods.speed);
+  s.powerFactor = s.demand > s.power ? Math.max(0.15, s.power / s.demand) : 1;
+  s.trackFrac = s.thrust ? s.trackT / s.thrust : 0;
+  s.hoverFrac = s.thrust ? s.hoverT / s.thrust : 0;
+  for (const b of s.weapons) {
+    let chain = 0, rateM = 1, dmgM = 1;
+    for (const n of neighbours(v, b)) {
+      if (n.t === 'battery') { if (b.t === 'tesla') chain++; if (b.t === 'laser') dmgM += 0.2; }
+      if (n.t === 'cannon' && b.t === 'cannon') rateM += 0.12;
+    }
+    b.syn = { chain, rateM, dmgM };
+  }
+  v.s = s;
+  if (G && v === V) { const cnt = {}; for (const b of v.list) cnt[b.t] = (cnt[b.t] || 0) + 1; for (const t in cnt) G.peak[t] = Math.max(G.peak[t] || 0, cnt[t]); }
+  return s;
+}
+
+/* ======================= Start / end run ======================= */
+function startRun(wk) {
+  const W = save.worlds[wk];
+  R = mulberry((Date.now() ^ (W.gen * 7919) ^ 0x9e3779b9) >>> 0);
+  G = { wk, W, t: 0, level: 1, xp: 0, xpNeed: 7, mods: freshMods(), lvl: {}, budget: 2, wave: -1, pattern: 'ring', patAng: 0, breather: false,
+        mb1: false, mb2: false, boss: false, bossE: null, won: false, over: false, endT: 0, kills: 0, killsBy: {}, loot: {}, reroll: 1,
+        pendingLevels: 0, dmgBy: {}, killsSrc: {}, peak: {}, taken: 0, maxR: 30, zoom: 1, spawnD: 600, lavaT: 0, hazWarned: false, nextSp: null, lastHit: 0 };
+  for (const t of DTYPES) G.killsBy[t] = 0;
+  for (const r in RES) G.loot[r] = 0;
+  V = makeVehicle(save.build);
+  compileVehicle(V, G.mods);
+  E = []; PB = []; EBL = []; PK = []; FX = []; BEAMS = []; DEP = []; HZ = [];
+  for (const sp of W.species) { compileSpecies(sp); sp.st = { n: 0, dmg: 0, life: 0 }; }
+  genMap(wk);
+  resize();
+  setMode('run');
+  toast(WORLDS[wk].name + ' · tier ' + W.tier + ' · generation ' + W.gen, 2600);
+  if (!save.seenHelp) { save.seenHelp = true; persist(); setTimeout(() => { if (G && mode === 'run') toast('Drag anywhere to drive. Weapons fire on their own in the direction they face.', 4200); }, 2700); }
+}
+function genMap(wk) {
+  const Wd = WORLDS[wk];
+  for (let i = 0; i < 16; i++) {
+    let x, y, g = 0;
+    do { x = rand(-ARENA + 200, ARENA - 200); y = rand(-ARENA + 200, ARENA - 200); g++; } while (Math.hypot(x, y) < 380 && g < 30);
+    HZ.push({ x, y, r: rand(110, 250) });
+  }
+  for (let i = 0; i < 46; i++) {
+    let x, y, g = 0;
+    do { x = rand(-ARENA + 120, ARENA - 120); y = rand(-ARENA + 120, ARENA - 120); g++; } while (Math.hypot(x, y) < 160 && g < 30);
+    DEP.push({ x, y, res: wpick(Wd.res), amt: Math.round(rand(4, 9)), prog: 0 });
+  }
+}
+function endRun(won) {
+  if (!G || G.over) return;
+  G.over = true; G.won = won;
+  const W = G.W;
+  for (const e of E) if (!e.dead && e.sp && !e.bossLv) e.sp.st.life += G.t - e.t0;
+  if (won) for (const p of PK) if (p.k !== 'xp') G.loot[p.k] = (G.loot[p.k] || 0) + p.amt;
+  const mult = won ? 1 : 0.5;
+  const gained = {};
+  for (const r in G.loot) { const n = Math.floor(G.loot[r] * mult); if (n > 0) { gained[r] = n; save.res[r] += n; } }
+  W.runs++; save.runs++;
+  if (won) { W.wins++; save.wins++; }
+  const report = evolveWorld(G.wk, won);
+  if (won) W.tier = Math.min(12, W.tier + 1);
+  persist();
+  snd(won ? 660 : 140, 0.6, won ? 'triangle' : 'sawtooth', 0.05);
+  const res = { won, t: G.t, kills: G.kills, level: G.level, gained, report, wk: G.wk, dmg: Object.assign({}, G.dmgBy), ks: Object.assign({}, G.killsSrc), peak: Object.assign({}, G.peak), taken: G.taken };
+  setTimeout(() => showDebrief(res), won ? 900 : 1200);
+}
+
+/* ======================= Evolution (genetic algorithm) ======================= */
+function cellConnected(cells) {
+  const has = new Map(cells.map(c => [c[0] + ',' + c[1], c]));
+  const seen = new Set(['0,0']); const st = [[0, 0]];
+  while (st.length) { const [x, y] = st.pop(); for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) { const k = (x + dx) + ',' + (y + dy); if (has.has(k) && !seen.has(k)) { seen.add(k); st.push([x + dx, y + dy]); } } }
+  return cells.filter(c => seen.has(c[0] + ',' + c[1]));
+}
+function freeAdj(cells) {
+  const occ = new Set(cells.map(c => c[0] + ',' + c[1])); const out = [];
+  for (const c of cells) for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const x = c[0] + dx, y = c[1] + dy, k = x + ',' + y;
+    if (Math.abs(x) <= 2 && Math.abs(y) <= 2 && !occ.has(k)) { occ.add(k); out.push([x, y]); }
+  }
+  return out;
+}
+function counterWeights(wk, killsBy) {
+  let tot = 0; for (const t of DTYPES) tot += killsBy[t] || 0;
+  const sh = t => tot ? (killsBy[t] || 0) / tot : 0;
+  const w = { spike: 3, plate: 2, gun: 1.6, boomer: 1, thruster: 2, fireplate: 0.4, insul: 0.4, reactive: 0.4 };
+  w.reactive += 4 * sh('kinetic') + 3 * sh('explosive');
+  w.fireplate += 5 * sh('fire');
+  w.insul += 3 * (sh('electric') + sh('energy'));
+  if (wk === 'tundra') w.insul += 1; if (wk === 'magma') w.fireplate += 1;
+  return w;
+}
+const SYL = ['ra','ko','zu','vex','mor','tin','gal','dra','ix','sko','bur','neth','ul','kri','sa','vo','ter','gra'];
+function nameFor(cells) {
+  const n = {}; for (const c of cells) if (c[2] !== 'core') n[c[2]] = (n[c[2]] || 0) + 1;
+  let top = 'core', best = 0; for (const k in n) if (n[k] > best) { best = n[k]; top = k; }
+  const suf = { spike: 'Ripper', plate: 'Hulk', gun: 'Spitter', boomer: 'Popper', thruster: 'Dart', fireplate: 'Salamander', insul: 'Warden', reactive: 'Carapace', core: 'Mote' }[top];
+  const a = pick(SYL), b = pick(SYL);
+  return (a + b).charAt(0).toUpperCase() + (a + b).slice(1) + ' ' + suf;
+}
+function mutate(cells, weights) {
+  const ops = 1 + (R() < 0.5 ? 1 : 0);
+  for (let i = 0; i < ops; i++) {
+    const r = R();
+    const nonCore = cells.filter(c => c[2] !== 'core');
+    if (r < 0.45 && cells.length < 8) {
+      const f = freeAdj(cells); if (f.length) { const p = pick(f); cells.push([p[0], p[1], wpick(weights)]); }
+    } else if (r < 0.65 && nonCore.length > 1) {
+      const c = pick(nonCore); cells.splice(cells.indexOf(c), 1);
+      const kept = cellConnected(cells); cells.length = 0; cells.push(...kept);
+    } else if (nonCore.length) {
+      pick(nonCore)[2] = wpick(weights);
+    }
+  }
+  return cells;
+}
+function crossover(A, Bp) {
+  const cells = A.cells.map(c => c.slice());
+  if (A === Bp) return cells;
+  for (const c of Bp.cells) {
+    if (c[2] === 'core' || R() < 0.5) continue;
+    const ex = cells.find(o => o[0] === c[0] && o[1] === c[1]);
+    if (ex) { if (ex[2] !== 'core') ex[2] = c[2]; }
+    else if (cells.length < 8 && cells.some(o => Math.abs(o[0] - c[0]) + Math.abs(o[1] - c[1]) === 1)) cells.push(c.slice());
+  }
+  return cellConnected(cells);
+}
+function evolveWorld(wk, won) {
+  const W = save.worlds[wk]; const lines = [];
+  const sps = W.species;
+  const totalN = sps.reduce((a, s) => a + s.st.n, 0);
+  // adaptive resistance
+  let tot = 0; for (const t of DTYPES) tot += G.killsBy[t] || 0;
+  if (tot >= 15) {
+    for (const t of DTYPES) {
+      const share = (G.killsBy[t] || 0) / tot;
+      if (share > 0.4) {
+        const before = W.res[t]; W.res[t] = Math.min(0.35, +(W.res[t] + 0.05).toFixed(2));
+        if (W.res[t] > before) lines.push('The machines adapted to your ' + t + ' weapons: +5% resistance (now ' + Math.round(W.res[t] * 100) + '%).');
+        else lines.push('Resistance to ' + t + ' is maxed at 35%. Mix up your weapons.');
+      } else if (W.res[t] > 0 && share < 0.15) {
+        W.res[t] = Math.max(0, +(W.res[t] - 0.02).toFixed(2));
+      }
+    }
+  }
+  if (totalN < 12) { lines.push('Too few encounters for the species to evolve this time.'); return lines; }
+  for (const s of sps) { const n = Math.max(1, s.st.n); s.fit = s.st.dmg / n + 0.4 * s.st.life / n; }
+  const sorted = sps.slice().sort((a, b) => b.fit - a.fit);
+  const n = sorted.length;
+  const nPar = Math.max(1, Math.ceil(n * 0.3));
+  const parents = sorted.slice(0, nPar);
+  let nKill = Math.max(1, Math.floor(n * 0.3));
+  if (n - nKill < 4) nKill = Math.max(0, n - 4);
+  const extinct = nKill ? sorted.slice(n - nKill) : [];
+  const weights = counterWeights(wk, G.killsBy);
+  const nChild = nKill + (n < 10 ? 1 : 0);
+  const children = [];
+  for (let i = 0; i < nChild; i++) {
+    const A = pick(parents), Bp = pick(parents);
+    const cells = mutate(crossover(A, Bp), weights);
+    const hasGun = cells.some(c => c[2] === 'gun');
+    const pref = hasGun ? clamp((A.pref || 200) + rand(-50, 50), 130, 280) : 0;
+    const child = makeSpecies(nameFor(cells), cells, pref, W.gen + 1);
+    child.spd = clamp((A.spd + Bp.spd) / 2 * rand(0.92, 1.1), 0.75, 1.35); compileSpecies(child);
+    children.push(child);
+    lines.push(child.name + ' evolved from ' + A.name + (A !== Bp ? ' × ' + Bp.name : '') + ': ' + describeSpecies(child) + '.');
+  }
+  for (const s of extinct) lines.push(s.name + ' went extinct.');
+  W.species = sps.filter(s => !extinct.includes(s)).concat(children).slice(0, 10);
+  const maxFit = Math.max(0.001, ...sorted.map(s => s.fit));
+  for (const s of W.species) { s.pop = 0.5 + (s.fit !== undefined ? s.fit / maxFit : 0.6); delete s.fit; s.st = { n: 0, dmg: 0, life: 0 }; }
+  save.discovered += children.length;
+  W.gen++;
+  if (W.gen % 5 === 0) { W.era++; lines.push('A new era begins in ' + WORLDS[wk].name + ' (era ' + W.era + '). Its bosses grow stronger.'); }
+  W.log = lines.slice(0, 8);
+  return lines;
+}
+
+/* ======================= Director ======================= */
+function pickSpecies() {
+  const ws = {}; for (const s of G.W.species) ws[s.id] = s.pop || 1;
+  const id = +wpick(ws);
+  return G.W.species.find(s => s.id === id) || G.W.species[0];
+}
+function spawnPos() {
+  let a;
+  if (G.pattern === 'flank') a = G.patAng + rand(-0.6, 0.6);
+  else if (G.pattern === 'stream') a = G.patAng + rand(-0.2, 0.2);
+  else a = rand(0, TAU);
+  const d = G.spawnD + rand(0, G.pattern === 'scatter' ? 220 : 80);
+  let x = V.x + Math.cos(a) * d, y = V.y + Math.sin(a) * d;
+  if (Math.abs(x) > ARENA - 20 || Math.abs(y) > ARENA - 20) { x = V.x - Math.cos(a) * d; y = V.y - Math.sin(a) * d; }
+  return { x: clamp(x, -ARENA + 20, ARENA - 20), y: clamp(y, -ARENA + 20, ARENA - 20) };
+}
+function spawnEnemy(sp, x, y, bossLv) {
+  const c = sp.c;
+  const tier = G.W.tier;
+  let hpM = (1 + 0.4 * (tier - 1)) * (1 + G.t / 260);
+  let sc = 1, spdM = 1, dmgM = 1 + 0.12 * (tier - 1);
+  if (bossLv === 1) { hpM *= 10; sc = 1.9; spdM = 0.75; dmgM *= 2.2; }
+  if (bossLv === 2) { hpM *= 16 * (1 + 0.15 * (G.W.era - 1)); sc = 2.7; spdM = 0.65; dmgM *= 2.2; }
+  const e = { sp, x, y, vx: 0, vy: 0, h: Math.atan2(V.y - y, V.x - x), hp: c.hp * hpM, max: c.hp * hpM, sc, r: (c.ext + 0.6) * EC * sc,
+    speed: c.speed * spdM, melee: c.melee * dmgM, gun: bossLv ? 7 * (1 + 0.12 * (tier - 1)) : c.gun * dmgM, boom: bossLv ? 0 : c.boom * dmgM, res: c.res,
+    pref: sp.pref || (bossLv ? 160 : 0), cd: rand(0.5, 1.8), flash: 0, burn: 0, burnDps: 0, dead: false, t0: G.t, bossLv: bossLv || 0, lastType: 'kinetic' };
+  if (e.r > G.maxR) G.maxR = e.r;
+  sp.st.n++;
+  E.push(e);
+  return e;
+}
+function spawnBoss(lv) {
+  let sp = G.W.species[0];
+  for (const s of G.W.species) if (s.c.hp + s.c.melee * 3 > sp.c.hp + sp.c.melee * 3) sp = s;
+  const p = spawnPos();
+  const e = spawnEnemy(sp, p.x, p.y, lv);
+  if (lv === 2) { G.bossE = e; toast('World boss: Apex ' + sp.name + '. Destroy it to win.', 3200); snd(90, 1.0, 'sawtooth', 0.06); }
+  else { toast('Mini-boss: Elder ' + sp.name, 2400); snd(120, 0.6, 'sawtooth', 0.05); }
+  if (lv === 1) e.isMini = true;
+}
+function spawnCache() {
+  const a = rand(0, TAU), d = rand(160, 260);
+  const x = clamp(V.x + Math.cos(a) * d, -ARENA + 60, ARENA - 60), y = clamp(V.y + Math.sin(a) * d, -ARENA + 60, ARENA - 60);
+  DEP.push({ x, y, res: wpick(WORLDS[G.wk].res), amt: 14, prog: 0, cache: true });
+}
+function director(dt) {
+  const t = G.t;
+  const waveIdx = Math.floor(t / 30);
+  if (waveIdx !== G.wave) {
+    G.wave = waveIdx; G.pattern = pick(['ring', 'flank', 'stream', 'scatter']); G.patAng = rand(0, TAU);
+    G.breather = waveIdx > 0 && waveIdx % 4 === 3;
+    if (G.breather) { spawnCache(); toast('Breather. A supply cache dropped nearby.', 2200); }
+    else if (waveIdx > 0 && t < RUN_LEN) toast('Wave ' + (waveIdx + 1), 1200);
+  }
+  if (!G.mb1 && t >= 120) { G.mb1 = true; spawnBoss(1); }
+  if (!G.mb2 && t >= 240) { G.mb2 = true; spawnBoss(1); }
+  if (!G.boss && t >= RUN_LEN) { G.boss = true; spawnBoss(2); }
+  const lvlAdj = clamp(Math.sqrt((G.level + 2) / (2 + t / 25)), 0.75, 1.5);
+  let rate = (0.7 + t / 38) * (0.8 + 0.2 * G.W.tier) * lvlAdj;
+  if (G.breather) rate *= 0.35;
+  if (G.boss) rate *= 0.3;
+  G.budget = Math.min(G.budget + rate * dt, 60);
+  let guard = 0;
+  while (E.length < MAX_E && guard++ < 12) {
+    const sp = G.nextSp || (G.nextSp = pickSpecies());
+    if (G.budget < sp.c.cost) break;
+    G.budget -= sp.c.cost; G.nextSp = null;
+    const p = spawnPos(); spawnEnemy(sp, p.x, p.y, 0);
+  }
+}
+
+/* ======================= Spatial hash ======================= */
+const HS = 80; let HASH = new Map();
+const hkey = (cx, cy) => (cx + 2048) * 4096 + (cy + 2048);
+function buildHash() {
+  HASH = new Map();
+  for (const e of E) {
+    if (e.dead) continue;
+    const k = hkey(Math.floor(e.x / HS), Math.floor(e.y / HS));
+    let a = HASH.get(k); if (!a) { a = []; HASH.set(k, a); } a.push(e);
+  }
+}
+function query(x, y, r, fn) {
+  const x0 = Math.floor((x - r) / HS), x1 = Math.floor((x + r) / HS), y0 = Math.floor((y - r) / HS), y1 = Math.floor((y + r) / HS);
+  for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) {
+    const a = HASH.get(hkey(cx, cy)); if (!a) continue;
+    for (let i = 0; i < a.length; i++) if (!a[i].dead) fn(a[i]);
+  }
+}
+
+/* ======================= Combat ======================= */
+function findTarget(x, y, range, face, arc) {
+  let best = null, bd = Infinity; const half = arc / 2; const full = arc >= TAU - 0.01;
+  query(x, y, range + G.maxR, e => {
+    const dx = e.x - x, dy = e.y - y, d = Math.hypot(dx, dy) - e.r;
+    if (d > range || d >= bd) return;
+    if (!full && Math.abs(angDiff(face, Math.atan2(dy, dx))) > half) return;
+    bd = d; best = e;
+  });
+  return best;
+}
+function credit(src, dmg, e) {
+  if (!src) return;
+  G.dmgBy[src] = (G.dmgBy[src] || 0) + Math.min(dmg, Math.max(0, e.hp));
+}
+function hitEnemy(e, dmg, type, src) {
+  if (e.dead) return;
+  if (R() < G.mods.crit) dmg *= 2;
+  const res = Math.min(0.75, (e.res[type] || 0) + (G.W.res[type] || 0));
+  dmg *= 1 - res;
+  credit(src, dmg, e);
+  e.hp -= dmg; e.flash = 0.07; e.lastType = type; if (src) e.lastSrc = src;
+  if (e.hp <= 0) killEnemy(e);
+}
+function killEnemy(e) {
+  e.dead = true; G.kills++;
+  G.killsBy[e.lastType] = (G.killsBy[e.lastType] || 0) + 1;
+  if (e.lastSrc) G.killsSrc[e.lastSrc] = (G.killsSrc[e.lastSrc] || 0) + 1;
+  if (!e.bossLv) e.sp.st.life += G.t - e.t0;
+  burst(e.x, e.y, e.bossLv ? 40 : 7, EB.core.color, e.bossLv ? 260 : 140);
+  const xp = Math.max(1, Math.round(e.sp.c.cost * 1.3 * (e.bossLv === 2 ? 25 : e.bossLv ? 8 : 1)));
+  dropXP(e.x, e.y, xp);
+  // resources: half from world profile, half from what the enemy was built of
+  const chance = e.bossLv ? 1 : 0.4;
+  if (R() < chance) {
+    const n = e.bossLv ? 6 : 1;
+    for (let i = 0; i < n; i++) {
+      const r = R() < 0.5 ? wpick(WORLDS[G.wk].res) : EB[pick(e.sp.cells)[2]].mat;
+      PK.push({ x: e.x + rand(-14, 14), y: e.y + rand(-14, 14), k: r, amt: e.bossLv ? 3 : 1, vx: 0, vy: 0 });
+    }
+  }
+  if (e.bossLv) PK.push({ x: e.x, y: e.y, k: 'shard', amt: e.bossLv === 2 ? 4 : 1, vx: 0, vy: 0 });
+  if (G.mods.heal) { const b = V.list.find(o => o.hp < o.max); if (b) b.hp = Math.min(b.max, b.hp + G.mods.heal); }
+  shake = Math.max(shake, e.bossLv ? 14 : 1.5);
+  if (e.bossLv) snd(100, 0.8, 'sawtooth', 0.06); else if (R() < 0.3) snd(220, 0.08, 'triangle', 0.02);
+  if (e.bossLv === 2 && !G.over) { G.wonPending = true; G.endT = G.t + 1.2; toast('Apex destroyed!', 1800); }
+}
+function dropXP(x, y, amt) {
+  if (PK.length > 520) { G.xp += amt * (1 + G.mods.xp); checkLevel(); return; }
+  PK.push({ x, y, k: 'xp', amt, vx: 0, vy: 0 });
+}
+function checkLevel() {
+  while (G.xp >= G.xpNeed) { G.xp -= G.xpNeed; G.level++; G.xpNeed = Math.round(5 + G.level * 4 + G.level * G.level * 0.2); G.pendingLevels++; }
+}
+function explode(x, y, r, dmg, type, src) {
+  query(x, y, r + G.maxR, e => { const d = Math.hypot(e.x - x, e.y - y); if (d < r + e.r) hitEnemy(e, dmg, type, src); });
+  ring(x, y, r, DCOL[type]);
+  burst(x, y, 10, DCOL[type], 180);
+  shake = Math.max(shake, 3);
+  snd(90, 0.25, 'sawtooth', 0.025);
+}
+function fireWeapons(dt) {
+  const s = V.s;
+  for (const b of s.weapons) {
+    if (b.dead) continue;
+    const d = B[b.t], w = d.w, lv = G.lvl[b.t] || 0;
+    b.cd -= dt; if (b.cd > 0) continue;
+    const range = w.range * (1 + G.mods.range);
+    const face = V.h + (d.dir ? b.r * Math.PI / 2 : 0);
+    const tgt = findTarget(b.wx, b.wy, range, face, w.arc * Math.PI / 180);
+    if (!tgt) { b.cd = 0.08; continue; }
+    const U = upL(b.t);
+    const rate = w.rate * (1 + 0.12 * lv) * (1 + 0.05 * U) * (1 + G.mods.rate) * b.syn.rateM * s.powerFactor;
+    b.cd = 1 / rate;
+    const dmg = w.dmg * (1 + 0.25 * lv) * (1 + 0.15 * U) * (1 + (G.mods.dmg[w.type] || 0)) * b.syn.dmgM;
+    const src = b.t;
+    const ang = Math.atan2(tgt.y - b.wy, tgt.x - b.wx);
+    if (w.beam) {
+      hitEnemy(tgt, dmg, w.type, src);
+      BEAMS.push({ x1: b.wx, y1: b.wy, x2: tgt.x, y2: tgt.y, life: 0.1, max: 0.1, c: DCOL.energy, w: 3 });
+      shotSnd(880);
+    } else if (w.chain) {
+      const links = w.chain + b.syn.chain; const hit = [tgt]; let cur = tgt, px = b.wx, py = b.wy;
+      for (let j = 0; j <= links; j++) {
+        BEAMS.push({ x1: px, y1: py, x2: cur.x, y2: cur.y, life: 0.16, max: 0.16, c: DCOL.electric, w: 3.5, zig: true, glow: true });
+        if (FX.length < 600) burst(cur.x, cur.y, 3, '#e6dcff', 120);
+        hitEnemy(cur, dmg * (j === 0 ? 1 : TESLA_FALLOFF), 'electric', src);
+        px = cur.x; py = cur.y;
+        let nb = null, nd = TESLA_JUMP;
+        query(px, py, TESLA_JUMP, e => { if (hit.includes(e)) return; const dd = Math.hypot(e.x - px, e.y - py); if (dd < nd) { nd = dd; nb = e; } });
+        if (!nb) break; hit.push(nb); cur = nb;
+      }
+      shotSnd(520);
+    } else if (w.lob) {
+      const T = 0.85;
+      PB.push({ lob: true, sx: b.wx, sy: b.wy, tx: tgt.x + tgt.vx * T * 0.6, ty: tgt.y + tgt.vy * T * 0.6, t: 0, T, x: b.wx, y: b.wy, dmg, type: w.type, src, aoe: w.aoe, life: T + 0.1, r: 4 });
+      shotSnd(160);
+    } else {
+      const n = w.pellets || 1;
+      for (let i = 0; i < n; i++) {
+        const a = ang + rand(-w.spread, w.spread);
+        const sp = w.speed * rand(0.9, 1.08);
+        PB.push({ x: b.wx, y: b.wy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, type: w.type, src, life: w.life || range / w.speed + 0.05,
+          r: w.type === 'fire' ? 7 : 3, pierce: w.pierce || 0, burn: w.burn || 0, hits: null });
+      }
+      shotSnd(w.type === 'fire' ? 200 : 330);
+    }
+  }
+}
+function nearestBlock(x, y) {
+  let best = null, bd = Infinity;
+  for (const b of V.list) { const d = (b.wx - x) ** 2 + (b.wy - y) ** 2; if (d < bd) { bd = d; best = b; } }
+  return { b: best, d: Math.sqrt(bd) };
+}
+function hitPlayer(b, dmg, sp) {
+  if (!b || G.over || b.dead) return;
+  dmg *= 1 - G.mods.armor;
+  if (B[b.t].cat !== 'armor') {
+    let arm = null; for (const n of neighbours(V, b)) if (B[n.t].cat === 'armor' && (!arm || n.hp > arm.hp)) arm = n;
+    if (arm) { const tr = dmg * 0.4; dmg -= tr; arm.hp -= tr; arm.fl = 0.1; if (arm.hp <= 0) destroyBlock(arm); }
+  }
+  if (sp) sp.st.dmg += dmg;
+  if (b.dead) return;
+  G.taken += dmg;
+  b.hp -= dmg; b.fl = 0.1; V.flash = 0.08;
+  shake = Math.max(shake, Math.min(8, 1 + dmg * 0.2));
+  if (b.hp <= 0) destroyBlock(b);
+}
+function destroyBlock(b) {
+  if (b.dead || G.over) return;
+  b.dead = true;
+  V.list = V.list.filter(o => o !== b); V.map.delete(bkey(b.x, b.y));
+  burst(b.wx, b.wy, 14, B[b.t].color, 200); shake = Math.max(shake, 7);
+  snd(180, 0.3, 'sawtooth', 0.04);
+  if (b.t === 'cab') { endRun(false); return; }
+  const keep = reachable(V);
+  const lost = V.list.filter(o => !keep.has(o));
+  if (lost.length) {
+    for (const o of lost) { o.dead = true; V.map.delete(bkey(o.x, o.y)); debris(o); }
+    V.list = V.list.filter(o => keep.has(o));
+    toast(lost.length === 1 ? B[lost[0].t].name + ' broke off!' : lost.length + ' blocks broke off!', 1400);
+  } else toast(B[b.t].name + ' destroyed', 900);
+  compileVehicle(V, G.mods);
+}
+
+/* ======================= FX ======================= */
+function burst(x, y, n, c, sp) {
+  if (FX.length > 700) return;
+  for (let i = 0; i < n; i++) { const a = rand(0, TAU), v = rand(0.2, 1) * sp; FX.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.25, 0.6), max: 0.6, c, s: rand(2, 4.5) }); }
+}
+function ring(x, y, r, c) { FX.push({ ring: true, x, y, r, life: 0.3, max: 0.3, c }); }
+function debris(b) {
+  const a = rand(0, TAU), v = rand(120, 220);
+  FX.push({ x: b.wx, y: b.wy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1.4, max: 1.4, c: B[b.t].color, s: CS * 0.85, rot: rand(0, TAU), vr: rand(-8, 8), block: true });
+}
+
+/* ======================= Update ======================= */
+const JOY = { active: false, id: -1, ox: 0, oy: 0, px: 0, py: 0, x: 0, y: 0 };
+
+function inZone(x, y) { for (const z of HZ) if ((x - z.x) ** 2 + (y - z.y) ** 2 < z.r * z.r) return true; return false; }
+
+function update(dt) {
+  if (!G || G.over) return;
+  G.t += dt;
+  if (G.wonPending && G.t >= G.endT) { endRun(true); return; }
+  const s = V.s;
+  const haz = WORLDS[G.wk].hazard;
+  const onHaz = inZone(V.x, V.y);
+
+  // --- movement
+  const mag = Math.min(1, Math.hypot(JOY.x, JOY.y));
+  let fwd = 0;
+  if (mag > 0.05) {
+    const ta = Math.atan2(JOY.y, JOY.x);
+    const da = angDiff(V.h, ta);
+    const tr = s.turn * dt;
+    V.h += clamp(da, -tr, tr);
+    fwd = Math.max(0.2, Math.cos(angDiff(V.h, ta)));
+  }
+  let spd = s.speed * mag * fwd;
+  let grip = 6;
+  if (onHaz && haz === 'mud') spd *= 0.42 + 0.58 * s.trackFrac;
+  if (onHaz && haz === 'ice') grip *= 0.18 + 0.82 * s.trackFrac;
+  const k = 1 - Math.exp(-grip * dt);
+  V.vx += (Math.cos(V.h) * spd - V.vx) * k;
+  V.vy += (Math.sin(V.h) * spd - V.vy) * k;
+  V.x = clamp(V.x + V.vx * dt, -ARENA + 30, ARENA - 30);
+  V.y = clamp(V.y + V.vy * dt, -ARENA + 30, ARENA - 30);
+
+  // block world positions
+  const a = V.h + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
+  for (const b of V.list) { b.wx = V.x + (b.x * ca - b.y * sa) * CS; b.wy = V.y + (b.x * sa + b.y * ca) * CS; if (b.fl > 0) b.fl -= dt; }
+
+  // lava
+  if (onHaz && haz === 'lava') {
+    G.lavaT += dt;
+    if (!G.hazWarned) { G.hazWarned = true; toast('Lava burns your blocks. Hover pads float over it.', 2400); }
+    if (G.lavaT >= 0.25) { G.lavaT = 0; const dmg = 2.5 * (1 - s.hoverFrac); if (dmg > 0.2 && V.list.length) hitPlayer(pick(V.list), dmg, null); if (G.over) return; }
+  } else if (onHaz && !G.hazWarned) { G.hazWarned = true; toast(WORLDS[G.wk].hazardText, 2400); }
+
+  // regen / repair
+  for (const b of V.list) {
+    const d = B[b.t];
+    const hm = 1 + 0.25 * upL(b.t);
+    let heal = G.mods.regen + (d.regen || 0) * hm;
+    if (heal) b.hp = Math.min(b.max, b.hp + heal * dt);
+    if (d.repair) for (const n of neighbours(V, b)) n.hp = Math.min(n.max, n.hp + d.repair * hm * dt);
+  }
+
+  director(dt);
+  buildHash();
+  fireWeapons(dt);
+  if (G.over) return;
+
+  // --- player projectiles
+  for (let i = PB.length - 1; i >= 0; i--) {
+    const p = PB[i];
+    p.life -= dt;
+    if (p.lob) {
+      p.t += dt; const kk = Math.min(1, p.t / p.T);
+      p.x = lerp(p.sx, p.tx, kk); p.y = lerp(p.sy, p.ty, kk); p.z = Math.sin(kk * Math.PI) * 60;
+      if (kk >= 1) { explode(p.tx, p.ty, p.aoe, p.dmg, p.type, p.src); swapRemove(PB, i); }
+      continue;
+    }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    let done = false;
+    query(p.x, p.y, p.r + G.maxR, e => {
+      if (done) return;
+      if (p.hits && p.hits.includes(e)) return;
+      if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + p.r) {
+        hitEnemy(e, p.dmg, p.type, p.src);
+        if (p.burn) { e.burn = 2; e.burnSrc = p.src; e.burnDps = Math.max(e.burnDps, p.burn * (1 + 0.15 * upL(p.src)) * (1 + (G.mods.dmg.fire || 0))); }
+        if (p.pierce > 0) { p.pierce--; (p.hits || (p.hits = [])).push(e); }
+        else done = true;
+      }
+    });
+    if (done || p.life <= 0) swapRemove(PB, i);
+  }
+
+  // --- enemies
+  const pr = s.radius;
+  for (const e of E) {
+    if (e.dead) continue;
+    if (e.flash > 0) e.flash -= dt;
+    if (e.burn > 0) { e.burn -= dt; e.lastType = 'fire'; e.lastSrc = e.burnSrc; const bd = e.burnDps * dt * (1 - Math.min(0.75, (e.res.fire || 0) + (G.W.res.fire || 0))); credit(e.burnSrc, bd, e); e.hp -= bd; if (e.hp <= 0) { killEnemy(e); continue; } }
+    const dx = V.x - e.x, dy = V.y - e.y, d = Math.hypot(dx, dy) || 1;
+    let tx = dx / d, ty = dy / d;
+    if (e.pref > 0) {
+      if (d < e.pref * 0.8) { tx = -tx; ty = -ty; }
+      else if (d < e.pref * 1.25) { const ox = -ty, oy = tx; tx = ox * 0.8; ty = oy * 0.8; }
+    }
+    // separation
+    let sx = 0, sy = 0;
+    query(e.x, e.y, e.r * 2, o => {
+      if (o === e) return;
+      const ddx = e.x - o.x, ddy = e.y - o.y, dd = Math.hypot(ddx, ddy) || 0.01, m = e.r + o.r;
+      if (dd < m) { sx += ddx / dd * (m - dd) / m; sy += ddy / dd * (m - dd) / m; }
+    });
+    const tvx = (tx + sx * 1.5) * e.speed, tvy = (ty + sy * 1.5) * e.speed;
+    const kk = 1 - Math.exp(-5 * dt);
+    e.vx += (tvx - e.vx) * kk; e.vy += (tvy - e.vy) * kk;
+    e.x += e.vx * dt; e.y += e.vy * dt;
+    if (Math.abs(e.vx) + Math.abs(e.vy) > 8) e.h = Math.atan2(e.vy, e.vx);
+    // contact with vehicle
+    if (d < pr + e.r) {
+      const nb = nearestBlock(e.x, e.y);
+      if (nb.b && nb.d < CS * 0.62 + e.r) {
+        if (e.boom > 0) {
+          for (const b of V.list.slice()) { const bd = Math.hypot(b.wx - e.x, b.wy - e.y); if (bd < 50) hitPlayer(b, e.boom * (1 - bd / 70), e.sp); if (G.over) return; }
+          ring(e.x, e.y, 50, '#ff7a3c'); burst(e.x, e.y, 12, '#ff7a3c', 200);
+          e.dead = true; e.sp.st.life += G.t - e.t0; continue;
+        }
+        hitPlayer(nb.b, e.melee * dt * 0.8, e.sp);
+        if (G.over) return;
+        const push = (CS * 0.62 + e.r - nb.d);
+        const ux = (e.x - nb.b.wx) / (nb.d || 1), uy = (e.y - nb.b.wy) / (nb.d || 1);
+        e.x += ux * push; e.y += uy * push;
+      }
+    }
+    // shooting
+    if (e.gun > 0) {
+      e.cd -= dt;
+      if (e.cd <= 0 && d < 420) {
+        e.cd = e.bossLv ? 1.3 : 1.8;
+        const n = e.bossLv === 2 ? 3 : e.bossLv ? 2 : 1;
+        const base = Math.atan2(dy, dx);
+        for (let j = 0; j < n; j++) {
+          const ang = base + (n > 1 ? (j - (n - 1) / 2) * 0.22 : rand(-0.05, 0.05));
+          EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 240, vy: Math.sin(ang) * 240, dmg: e.gun, life: 2.2, sp: e.sp });
+        }
+      }
+    }
+  }
+  E = E.filter(e => !e.dead);
+
+  // --- enemy bullets
+  for (let i = EBL.length - 1; i >= 0; i--) {
+    const p = EBL[i]; p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    let hit = false;
+    if (Math.hypot(p.x - V.x, p.y - V.y) < pr + 4) {
+      const nb = nearestBlock(p.x, p.y);
+      if (nb.b && nb.d < CS * 0.62 + 4) { hitPlayer(nb.b, p.dmg, p.sp); hit = true; if (G.over) return; }
+    }
+    if (hit || p.life <= 0) swapRemove(EBL, i);
+  }
+
+  // --- deposits
+  for (let i = DEP.length - 1; i >= 0; i--) {
+    const dp = DEP[i];
+    if (Math.hypot(dp.x - V.x, dp.y - V.y) < 44 + pr * 0.5) {
+      dp.prog += dt / 1.6;
+      if (dp.prog >= 1) {
+        for (let j = 0; j < dp.amt; j++) { const an = rand(0, TAU); PK.push({ x: dp.x, y: dp.y, k: dp.res, amt: 1, vx: Math.cos(an) * rand(60, 160), vy: Math.sin(an) * rand(60, 160) }); }
+        burst(dp.x, dp.y, 12, RES[dp.res].color, 160); snd(500, 0.12, 'triangle', 0.03);
+        swapRemove(DEP, i);
+      }
+    } else dp.prog = Math.max(0, dp.prog - dt * 0.5);
+  }
+
+  // --- pickups
+  const mr = s.magnet;
+  for (let i = PK.length - 1; i >= 0; i--) {
+    const p = PK[i];
+    const dx = V.x - p.x, dy = V.y - p.y, d = Math.hypot(dx, dy);
+    if (d < mr) { const pull = 520 * (1 - d / mr) + 160; p.vx += (dx / (d || 1)) * pull * dt * 6; p.vy += (dy / (d || 1)) * pull * dt * 6; }
+    p.vx *= 1 - Math.min(1, 4 * dt); p.vy *= 1 - Math.min(1, 4 * dt);
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    if (d < 22 + pr * 0.4) {
+      if (p.k === 'xp') { G.xp += p.amt * (1 + G.mods.xp); checkLevel(); }
+      else { G.loot[p.k] = (G.loot[p.k] || 0) + p.amt; }
+      swapRemove(PK, i);
+    }
+  }
+
+  // --- fx
+  for (let i = FX.length - 1; i >= 0; i--) { const f = FX[i]; f.life -= dt; if (!f.ring) { f.x += f.vx * dt; f.y += f.vy * dt; f.vx *= 0.94; f.vy *= 0.94; if (f.rot !== undefined) f.rot += f.vr * dt; } if (f.life <= 0) swapRemove(FX, i); }
+  for (let i = BEAMS.length - 1; i >= 0; i--) { BEAMS[i].life -= dt; if (BEAMS[i].life <= 0) swapRemove(BEAMS, i); }
+  if (shake > 0) shake = Math.max(0, shake - 30 * dt);
+  if (V.flash > 0) V.flash -= dt;
+}
+
+/* ======================= Cards / level-up ======================= */
+function validCells(list, Rlim) {
+  const occ = new Set(list.map(b => b.x + ',' + b.y)); const out = [];
+  for (const b of list) for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const x = b.x + dx, y = b.y + dy, k = x + ',' + y;
+    if (Math.abs(x) <= Rlim && Math.abs(y) <= Rlim && !occ.has(k)) { occ.add(k); out.push([x, y]); }
+  }
+  return out;
+}
+function makeCards() {
+  const cards = []; const used = new Set();
+  const weaponsOn = [...new Set(V.s.weapons.map(b => b.t))];
+  const canPlace = validCells(V.list, save.gridR + 1).length > 0;
+  let guard = 0;
+  while (cards.length < 3 && guard++ < 80) {
+    const r = R(); let c;
+    if (r < 0.45 && canPlace) { const t = pick(PLACEABLE); c = { kind: 'block', t, key: 'b' + t, label: 'New block', title: B[t].name, desc: B[t].desc }; }
+    else if (r < 0.8 && weaponsOn.length) { const t = pick(weaponsOn); const l = G.lvl[t] || 0; c = { kind: 'up', t, key: 'u' + t, label: 'Upgrade', title: B[t].name + ' Mk ' + roman(l + 2), desc: '+25% damage and +12% fire rate for every ' + B[t].name + '.' }; }
+    else { const p = pick(PERKS); c = { kind: 'perk', p, key: 'p' + p.id, label: 'Perk', title: p.name, desc: p.desc }; }
+    if (used.has(c.key)) continue; used.add(c.key); cards.push(c);
+  }
+  const damaged = V.list.some(b => b.hp < b.max * 0.55) || V.list.length < save.build.length;
+  if (damaged && R() < 0.55) cards[cards.length - 1] = { kind: 'repair', key: 'repair', label: 'Repair', title: 'Field repair', desc: 'Restore every block to full HP.' };
+  return cards;
+}
+function applyCard(c) {
+  if (c.kind === 'block') { showPlacement(c.t); return; }
+  if (c.kind === 'up') G.lvl[c.t] = (G.lvl[c.t] || 0) + 1;
+  if (c.kind === 'perk') c.p.apply(G.mods);
+  if (c.kind === 'repair') for (const b of V.list) b.hp = b.max;
+  compileVehicle(V, G.mods);
+  afterCard();
+}
+function afterCard() {
+  G.pendingLevels = Math.max(0, G.pendingLevels - 1);
+  if (G.pendingLevels > 0) showCards(); else setMode('run');
+}
+
+/* ======================= Rendering ======================= */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let DPR = 1, VW = 800, VH = 600;
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  VW = window.innerWidth || 800; VH = window.innerHeight || 600;
+  cv.width = Math.round(VW * DPR); cv.height = Math.round(VH * DPR);
+  if (G) { G.zoom = clamp(Math.min(VW, VH) / 620, 0.72, 1.6); G.spawnD = Math.hypot(VW, VH) / 2 / G.zoom + 70; }
+}
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (!G || !V) { ctx.fillStyle = '#1f262e'; ctx.fillRect(0, 0, cv.width, cv.height); return; }
+  const Wd = WORLDS[G.wk];
+  ctx.fillStyle = Wd.ground; ctx.fillRect(0, 0, cv.width, cv.height);
+  const z = G.zoom * DPR;
+  const shx = shake ? rand(-shake, shake) : 0, shy = shake ? rand(-shake, shake) : 0;
+  const cx = V.x + shx, cy = V.y + shy;
+  ctx.setTransform(z, 0, 0, z, cv.width / 2 - cx * z, cv.height / 2 - cy * z);
+  const hw = cv.width / z / 2, hh = cv.height / z / 2;
+  const x0 = cx - hw, x1 = cx + hw, y0 = cy - hh, y1 = cy + hh;
+  const vis = (x, y, m) => x > x0 - m && x < x1 + m && y > y0 - m && y < y1 + m;
+
+  // ground dots
+  ctx.fillStyle = Wd.dot;
+  const gs = 64;
+  for (let gx = Math.floor(x0 / gs) * gs; gx < x1; gx += gs) for (let gy = Math.floor(y0 / gs) * gs; gy < y1; gy += gs) ctx.fillRect(gx - 1.5, gy - 1.5, 3, 3);
+  // hazards
+  ctx.fillStyle = Wd.haz;
+  for (const zn of HZ) if (vis(zn.x, zn.y, zn.r)) { ctx.beginPath(); ctx.arc(zn.x, zn.y, zn.r, 0, TAU); ctx.fill(); }
+  // arena border
+  ctx.strokeStyle = 'rgba(246,195,68,0.35)'; ctx.lineWidth = 6; ctx.setLineDash([24, 18]);
+  ctx.strokeRect(-ARENA, -ARENA, ARENA * 2, ARENA * 2); ctx.setLineDash([]);
+  // deposits
+  for (const dp of DEP) {
+    if (!vis(dp.x, dp.y, 40)) continue;
+    const c = RES[dp.res].color;
+    ctx.fillStyle = c; ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    const rr = dp.cache ? 16 : 12;
+    for (let i = 0; i < 6; i++) { const an = i / 6 * TAU + 0.3; const r2 = i % 2 ? rr * 0.6 : rr; ctx.lineTo(dp.x + Math.cos(an) * r2, dp.y + Math.sin(an) * r2); }
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+    if (dp.cache) { ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(dp.x, dp.y, 24, 0, TAU); ctx.stroke(); }
+    if (dp.prog > 0) { ctx.strokeStyle = '#ece7dc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(dp.x, dp.y, 20, -Math.PI / 2, -Math.PI / 2 + dp.prog * TAU); ctx.stroke(); }
+  }
+  // pickups
+  for (const p of PK) {
+    if (!vis(p.x, p.y, 10)) continue;
+    if (p.k === 'xp') { ctx.fillStyle = '#4fa69a'; ctx.beginPath(); ctx.arc(p.x, p.y, 3 + Math.min(4, p.amt * 0.5), 0, TAU); ctx.fill(); }
+    else { ctx.fillStyle = RES[p.k].color; ctx.fillRect(p.x - 4, p.y - 4, 8, 8); }
+  }
+  // enemies
+  for (const e of E) {
+    if (!vis(e.x, e.y, e.r + 4)) continue;
+    ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.h + Math.PI / 2);
+    const sc = e.sc * EC;
+    for (const c of e.sp.cells) {
+      ctx.fillStyle = e.flash > 0 ? '#ffffff' : EB[c[2]].color;
+      ctx.fillRect(c[0] * sc - sc * 0.46, c[1] * sc - sc * 0.46, sc * 0.92, sc * 0.92);
+    }
+    if (e.burn > 0) { ctx.fillStyle = 'rgba(255,106,60,0.35)'; ctx.beginPath(); ctx.arc(0, 0, e.r, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    if (e.isMini) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(e.x - 26, e.y - e.r - 12, 52, 5);
+      ctx.fillStyle = '#c4533a'; ctx.fillRect(e.x - 26, e.y - e.r - 12, 52 * clamp(e.hp / e.max, 0, 1), 5);
+    }
+  }
+  // enemy bullets
+  ctx.fillStyle = '#ff5a5a';
+  for (const p of EBL) { if (vis(p.x, p.y, 6)) { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, TAU); ctx.fill(); } }
+  // player projectiles
+  for (const p of PB) {
+    if (!vis(p.x, p.y, 70)) continue;
+    if (p.lob) {
+      ctx.strokeStyle = 'rgba(255,154,74,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(p.tx, p.ty, p.aoe * 0.5, 0, TAU); ctx.stroke();
+      ctx.fillStyle = DCOL.explosive; ctx.beginPath(); ctx.arc(p.x, p.y - (p.z || 0), 5, 0, TAU); ctx.fill();
+    } else if (p.type === 'fire') {
+      ctx.fillStyle = 'rgba(255,110,50,' + clamp(p.life * 2, 0.15, 0.8) + ')'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+    } else {
+      ctx.strokeStyle = DCOL[p.type]; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 0.018, p.y - p.vy * 0.018); ctx.stroke();
+    }
+  }
+  // beams
+  for (const b of BEAMS) {
+    ctx.globalAlpha = clamp(b.life / b.max, 0, 1); ctx.strokeStyle = b.c; ctx.lineWidth = b.glow ? b.w * 2.6 : b.w;
+    if (b.glow) { ctx.globalAlpha *= 0.35; }
+    ctx.beginPath(); ctx.moveTo(b.x1, b.y1);
+    if (b.zig) { const n = 4; for (let i = 1; i < n; i++) { const t = i / n; ctx.lineTo(lerp(b.x1, b.x2, t) + rand(-6, 6), lerp(b.y1, b.y2, t) + rand(-6, 6)); } }
+    ctx.lineTo(b.x2, b.y2); ctx.stroke();
+    if (b.glow) { ctx.globalAlpha = clamp(b.life / b.max, 0, 1); ctx.strokeStyle = '#f2edff'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.lineTo(b.x2, b.y2); ctx.stroke(); }
+  }
+  ctx.globalAlpha = 1;
+  // vehicle
+  ctx.save(); ctx.translate(V.x, V.y); ctx.rotate(V.h + Math.PI / 2);
+  for (const b of V.list) {
+    const d = B[b.t]; const px = b.x * CS, py = b.y * CS;
+    ctx.fillStyle = b.fl > 0 ? '#ffffff' : d.color;
+    ctx.fillRect(px - CS * 0.47, py - CS * 0.47, CS * 0.94, CS * 0.94);
+    const hpf = b.hp / b.max;
+    if (hpf < 0.999) { ctx.fillStyle = 'rgba(20,20,20,0.55)'; ctx.fillRect(px - CS * 0.47, py - CS * 0.47, CS * 0.94, CS * 0.94 * (1 - hpf)); }
+    if (d.dir) {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(b.r * Math.PI / 2);
+      ctx.fillStyle = '#20252b'; ctx.fillRect(-2, -CS * 0.75, 4, CS * 0.5); ctx.restore();
+    } else if (d.w) { ctx.fillStyle = '#20252b'; ctx.beginPath(); ctx.arc(px, py, 3.5, 0, TAU); ctx.fill(); }
+    if (b.t === 'cab') { ctx.fillStyle = '#20252b'; ctx.fillRect(px - 4, py - CS * 0.38, 8, 4); }
+  }
+  ctx.restore();
+  // fx
+  for (const f of FX) {
+    ctx.globalAlpha = clamp(f.life / f.max, 0, 1);
+    if (f.ring) { ctx.strokeStyle = f.c; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(f.x, f.y, f.r * (1.2 - f.life / f.max * 0.5), 0, TAU); ctx.stroke(); }
+    else if (f.block) { ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.fillStyle = f.c; ctx.fillRect(-f.s / 2, -f.s / 2, f.s, f.s); ctx.restore(); }
+    else { ctx.fillStyle = f.c; ctx.fillRect(f.x - f.s / 2, f.y - f.s / 2, f.s, f.s); }
+  }
+  ctx.globalAlpha = 1;
+
+  // ---- screen space
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (V.flash > 0) { ctx.fillStyle = 'rgba(196,83,58,' + (V.flash * 2) + ')'; ctx.fillRect(0, 0, VW, VH); }
+  // offscreen boss arrow
+  for (const e of E) {
+    if (!e.bossLv) continue;
+    const sx = (e.x - cx) * G.zoom + VW / 2, sy = (e.y - cy) * G.zoom + VH / 2;
+    if (sx > 0 && sx < VW && sy > 0 && sy < VH) continue;
+    const an = Math.atan2(sy - VH / 2, sx - VW / 2);
+    const ex = clamp(sx, 30, VW - 30), ey = clamp(sy, 90, VH - 70);
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(an); ctx.fillStyle = '#c4533a';
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -9); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill(); ctx.restore();
+  }
+  // joystick
+  if (JOY.active && mode === 'run') {
+    ctx.strokeStyle = 'rgba(236,231,220,0.35)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, 70, 0, TAU); ctx.stroke();
+    ctx.fillStyle = 'rgba(246,195,68,0.75)';
+    ctx.beginPath(); ctx.arc(JOY.ox + JOY.x * 70, JOY.oy + JOY.y * 70, 26, 0, TAU); ctx.fill();
+  }
+}
+
+/* ======================= HUD ======================= */
+const $ = id => document.getElementById(id);
+let hudT = 0, toastTimer = null;
+function toast(msg, ms) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms || 1600);
+}
+function updateHUD() {
+  if (!G) return;
+  $('hTime').textContent = G.t < RUN_LEN ? fmtTime(RUN_LEN - G.t) : 'BOSS';
+  $('hWave').textContent = G.t < RUN_LEN ? (G.breather ? 'Breather' : 'Wave ' + (G.wave + 1)) : 'Destroy the apex';
+  $('xpbar').style.width = (clamp(G.xp / G.xpNeed, 0, 1) * 100).toFixed(1) + '%';
+  $('hLvl').textContent = 'Lv ' + G.level;
+  const cab = V.list.find(b => b.t === 'cab');
+  $('cabbar').style.width = (cab ? clamp(cab.hp / cab.max, 0, 1) * 100 : 0).toFixed(1) + '%';
+  const lootEl = $('hLoot'); lootEl.replaceChildren();
+  for (const r in RES) if (G.loot[r] > 0) lootEl.append(el('div', { class: 'lootchip' }, el('span', { class: 'dot', style: 'background:' + RES[r].color }), String(G.loot[r])));
+  const bb = $('bossbar');
+  if (G.bossE && !G.bossE.dead) { bb.classList.add('on'); $('bossname').textContent = 'Apex ' + G.bossE.sp.name; $('bossfill').style.width = (clamp(G.bossE.hp / G.bossE.max, 0, 1) * 100).toFixed(1) + '%'; }
+  else bb.classList.remove('on');
+}
+
+/* ======================= DOM helpers & screens ======================= */
+function el(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  if (props) for (const k in props) {
+    const v = props[k];
+    if (v === undefined || v === null || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'style') n.style.cssText = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (k === 'disabled') n.disabled = !!v;
+    else n.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) { if (c === null || c === undefined || c === false) continue; n.append(c.nodeType ? c : document.createTextNode(String(c))); }
+  return n;
+}
+const ui = $('ui');
+function setMode(m) {
+  mode = m;
+  const inRun = m === 'run';
+  $('hud').classList.toggle('on', m === 'run' || m === 'cards' || m === 'place' || m === 'pause');
+  $('hBottom').classList.toggle('on', m === 'run' || m === 'pause');
+  if (inRun) { ui.className = 'hidden'; ui.replaceChildren(); }
+  if (!inRun) { JOY.active = false; JOY.x = JOY.y = 0; }
+  if (m === 'hub' || m === 'garage' || m === 'debrief') { $('bossbar').classList.remove('on'); }
+}
+function show(cls, ...nodes) { ui.className = cls; ui.replaceChildren(...nodes); ui.scrollTop = 0; }
+function resChips(res, filterZero) {
+  return el('div', { class: 'resbar' }, Object.keys(RES).filter(r => !filterZero || res[r] > 0).map(r =>
+    el('div', { class: 'res' }, el('span', { class: 'dot', style: 'background:' + RES[r].color }), RES[r].name + ' ' + (res[r] || 0))));
+}
+function costChips(cost) {
+  return el('div', { class: 'cost' }, Object.keys(cost).map(r => el('span', { style: (save.res[r] || 0) < cost[r] ? 'color:var(--oxide)' : '' }, cost[r] + ' ' + RES[r].name)));
+}
+function canAfford(cost) { for (const r in cost) if ((save.res[r] || 0) < cost[r]) return false; return true; }
+function pay(cost) { for (const r in cost) save.res[r] -= cost[r]; }
+
+function showHub() {
+  G = null; V = null;
+  setMode('hub');
+  const worlds = Object.keys(WORLDS).map(k => {
+    const Wd = WORLDS[k], W = save.worlds[k];
+    const maxw = Math.max(...Object.values(Wd.res));
+    const resist = DTYPES.filter(t => W.res[t] > 0).map(t => t + ' ' + Math.round(W.res[t] * 100) + '%');
+    return el('div', { class: 'world' },
+      el('h3', null, Wd.name),
+      el('div', { class: 'meta' }, 'Tier ' + W.tier + ', generation ' + W.gen + ', era ' + W.era + '. ' + W.wins + ' wins in ' + W.runs + ' runs.'),
+      el('div', { class: 'meta' }, Wd.hazardText),
+      el('div', { class: 'profile' }, Object.keys(Wd.res).map(r => el('div', { class: 'prow' }, el('span', { class: 'lbl' }, RES[r].name),
+        el('span', { class: 'bar', style: 'background:' + RES[r].color + ';width:' + Math.max(4, Wd.res[r] / maxw * 120) + 'px' })))),
+      resist.length ? el('div', { class: 'meta' }, 'Adapted resistances: ' + resist.join(', ') + '.') : null,
+      el('details', null, el('summary', null, W.species.length + ' living species'),
+        el('div', { class: 'species' }, W.species.map(s => el('div', null, el('b', null, s.name), ' (gen ' + s.born + '): ' + describeSpecies(s))))),
+      W.log && W.log.length ? el('details', null, el('summary', null, 'Last evolution report'), el('div', { class: 'species' }, W.log.map(l => el('div', null, l)))) : null,
+      el('button', { class: 'btn primary', onclick: () => { audioUnlock(); startRun(k); } }, 'Launch into ' + Wd.name));
+  });
+  show('solid', el('div', { class: 'wrap' },
+    el('h1', null, 'Scrap ', el('span', { class: 'bolt' }, 'Evolution')),
+    el('p', { class: 'sub' }, 'Build a machine from blocks, survive five minutes of waves, destroy the apex. Every world evolves against the way you play.'),
+    resChips(save.res),
+    el('div', { class: 'row', style: 'margin:14px 0 4px' },
+      el('button', { class: 'btn', onclick: () => showGarage() }, 'Open garage'),
+      el('button', { class: 'btn ghost', onclick: () => showHelp() }, 'How to play'),
+      el('button', { class: 'btn ghost', onclick: () => { save.muted = !save.muted; persist(); showHub(); } }, save.muted ? 'Sound off' : 'Sound on'),
+      el('button', { class: 'btn ghost', onclick: () => showSaveTools() }, 'Back up save')),
+    el('h2', null, 'Choose a world'),
+    el('div', { class: 'worlds' }, worlds)));
+}
+function showHelp() {
+  setMode('hub');
+  show('solid', el('div', { class: 'wrap' },
+    el('h2', null, 'How to play'),
+    el('div', { class: 'howto' },
+      el('p', null, 'Touch anywhere and drag to drive. Your machine turns toward your thumb. Every weapon fires on its own, but only inside its arc: a cannon facing backwards covers your retreat.'),
+      el('p', null, 'Enemies drop experience (teal) and resources (squares). Drive over crystal deposits for 2 seconds to mine them. Each level-up offers three cards: a new block to bolt on, an upgrade, or a perk.'),
+      el('p', null, 'Blocks that lose their connection to the cab break off. Armor next to a block takes 40% of its hits. Batteries next to Tesla coils add chains; cannons next to cannons fire faster.'),
+      el('p', null, 'Survive 5:00, then destroy the apex to keep all loot. Dying keeps half. After every run the world breeds its most successful machines and grows resistant to your favourite damage type.'),
+      el('p', null, 'In the garage, craft permanent blocks from resources and arrange them on the grid. Tap a placed weapon to turn it. Rustlands has scrap, Crystal Tundra has crystal, Magma Rift has pyro-ore.')),
+    el('button', { class: 'btn primary', onclick: showHub }, 'Back')));
+}
+function showSaveTools() {
+  setMode('hub');
+  const ta = el('textarea', { 'aria-label': 'Save code' });
+  ta.value = exportCode();
+  const msg = el('p', { class: 'sub' }, 'Copy this code somewhere safe. Paste a code and tap Load to restore it.');
+  show('solid', el('div', { class: 'wrap' },
+    el('h2', null, 'Back up your save'), msg, ta,
+    el('div', { class: 'row', style: 'margin-top:12px' },
+      el('button', { class: 'btn', onclick: () => { ta.select(); try { navigator.clipboard.writeText(ta.value).then(() => { msg.textContent = 'Copied to the clipboard.'; }, () => { msg.textContent = 'Select the text and copy it manually.'; }); } catch (e) { msg.textContent = 'Select the text and copy it manually.'; } } }, 'Copy code'),
+      el('button', { class: 'btn', onclick: () => { try { importCode(ta.value); msg.textContent = 'Save loaded.'; } catch (e) { msg.textContent = 'That code could not be loaded: ' + e.message + '.'; } } }, 'Load code'),
+      el('button', { class: 'btn ghost', onclick: () => { if (confirm('Start over? This deletes your progress on this device.')) { defaultSave(); persist(); showHub(); } } }, 'Start over'),
+      el('button', { class: 'btn primary', onclick: showHub }, 'Back'))));
+}
+
+/* --- shared grid component --- */
+function gridView(list, Rlim, opts) {
+  const n = Rlim * 2 + 1;
+  const csz = Math.floor(clamp((Math.min(VW, 560) - 70) / n - 4, 30, 64));
+  const valid = new Set((opts.valid || []).map(c => c[0] + ',' + c[1]));
+  const g = el('div', { class: 'bgrid', style: 'grid-template-columns:repeat(' + n + ',' + csz + 'px);--cs:' + csz + 'px' });
+  for (let y = -Rlim; y <= Rlim; y++) for (let x = -Rlim; x <= Rlim; x++) {
+    const b = list.find(o => o.x === x && o.y === y);
+    let cell;
+    if (b) {
+      const d = B[b.t];
+      cell = el('button', { class: 'cell blk' + (b.t === 'cab' ? ' cab' : '') + (opts.fresh === b ? ' fresh' : ''), style: 'background:' + d.color, 'aria-label': d.name + (d.dir ? ', facing ' + ['forward', 'right', 'back', 'left'][b.r] : ''), onclick: () => opts.onTap(x, y, b) }, d.ab);
+      if (d.dir) cell.append(el('span', { class: 'arw', style: 'transform:rotate(' + (b.r * 90) + 'deg)' }));
+      if (b.max && b.hp < b.max) cell.append(el('span', { class: 'hpb' }, el('i', { style: 'width:' + Math.max(0, b.hp / b.max * 100) + '%' })));
+    } else {
+      const ok = valid.has(x + ',' + y);
+      cell = el('button', { class: 'cell' + (ok ? ' valid' : ''), 'aria-label': ok ? 'Place here' : 'Empty', onclick: () => opts.onTap(x, y, null) });
+    }
+    g.append(cell);
+  }
+  return el('div', null, el('div', { class: 'fwd' }, 'Front of the machine'), el('div', { class: 'gridwrap' }, g));
+}
+
+/* --- level-up cards --- */
+function showCards() {
+  setMode('cards');
+  const cards = makeCards();
+  show('dim', el('div', { class: 'wrap mid' },
+    el('h2', { class: 'center' }, 'Level ' + G.level + '. Choose one'),
+    el('div', { class: 'cards' }, cards.map(c => el('button', { class: 'card k-' + c.kind, onclick: () => applyCard(c) },
+      el('div', { class: 'kind' }, c.label), el('div', { class: 'ttl' }, c.title), el('div', { class: 'dsc' }, c.desc),
+      c.kind === 'block' ? el('div', { class: 'dsc', style: 'color:var(--yellow)' }, 'Placed for this run') : null))),
+    el('div', { class: 'row', style: 'justify-content:center;margin-top:16px' },
+      el('button', { class: 'btn ghost', disabled: G.reroll <= 0, onclick: () => { G.reroll--; showCards(); } }, 'Reroll (' + G.reroll + ' left)'))));
+  snd(740, 0.18, 'triangle', 0.04);
+}
+
+/* --- placement (in run) --- */
+function showPlacement(t, fresh) {
+  setMode('place');
+  const Rlim = save.gridR + 1;
+  const valid = fresh ? [] : validCells(V.list, Rlim);
+  const onTap = (x, y, b) => {
+    if (!fresh && !b && valid.some(c => c[0] === x && c[1] === y)) {
+      const nb = addBlock(V, x, y, t, 0);
+      nb.cd = 0.2;
+      compileVehicle(V, G.mods); snd(600, 0.12, 'triangle', 0.04);
+      showPlacement(t, nb);
+    } else if (b && B[b.t].dir) { b.r = (b.r + 1) % 4; compileVehicle(V, G.mods); showPlacement(t, fresh); }
+  };
+  show('dim', el('div', { class: 'wrap mid' },
+    el('h2', { class: 'center' }, fresh ? B[t].name + ' placed' : 'Place your ' + B[t].name),
+    el('p', { class: 'sub center', style: 'margin:0 auto 12px' }, fresh
+      ? (B[t].dir ? 'Tap any weapon to turn it. The bar shows where it fires.' : 'Tap any weapon to turn it, or continue.')
+      : 'Tap a highlighted slot next to your machine.'),
+    gridView(V.list, Rlim, { valid, fresh, onTap }),
+    el('div', { class: 'row', style: 'justify-content:center;margin-top:16px' },
+      fresh ? el('button', { class: 'btn primary', onclick: afterCard }, 'Continue') : el('button', { class: 'btn ghost', onclick: afterCard }, 'Skip this block'))));
+}
+
+/* --- pause --- */
+function showPause() {
+  if (mode !== 'run') return;
+  setMode('pause');
+  show('dim', el('div', { class: 'wrap mid center' },
+    el('h2', null, 'Paused'),
+    el('p', { class: 'sub', style: 'margin:0 auto 16px' }, WORLDS[G.wk].name + ', ' + fmtTime(G.t) + ' survived, ' + G.kills + ' kills.'),
+    el('div', { class: 'row', style: 'justify-content:center' },
+      el('button', { class: 'btn primary', onclick: () => setMode('run') }, 'Resume'),
+      el('button', { class: 'btn', onclick: () => { save.muted = !save.muted; persist(); setMode('run'); showPause(); } }, save.muted ? 'Sound off' : 'Sound on'),
+      el('button', { class: 'btn ghost', onclick: () => endRun(false) }, 'Abandon run (keep half)')),
+    el('div', { style: 'text-align:left;max-width:640px;margin:22px auto 0' }, el('h2', null, 'Damage so far'), damageReport(G.dmgBy, G.killsSrc, G.peak, G.t))));
+}
+
+/* --- damage report --- */
+function damageReport(dmg, ks, peak, t) {
+  const keys = Object.keys(dmg).filter(k => dmg[k] >= 1).sort((a, b) => dmg[b] - dmg[a]);
+  if (!keys.length) return el('p', { class: 'sub' }, 'No damage dealt.');
+  const total = keys.reduce((a, k) => a + dmg[k], 0), top = dmg[keys[0]];
+  return el('div', { class: 'log rep' },
+    keys.map(k => el('div', { class: 'rrow' },
+      el('div', { class: 'nm' }, el('span', { class: 'dot', style: 'background:' + B[k].color }), B[k].name + (peak[k] > 1 ? ' ×' + peak[k] : '')),
+      el('div', { class: 'track' }, el('div', { class: 'fill', style: 'background:' + B[k].color + ';width:' + Math.max(2, dmg[k] / top * 100).toFixed(1) + '%' })),
+      el('div', { class: 'num' }, el('b', null, Math.round(dmg[k] / total * 100) + '%'), ' ' + Math.round(dmg[k] / Math.max(1, t)) + '/s, ' + (ks[k] || 0) + ' kills'))),
+    el('div', { style: 'color:var(--muted);font-size:13px;margin-top:4px' }, 'Total ' + Math.round(total).toLocaleString('en') + ' damage, ' + Math.round(total / Math.max(1, t)) + ' per second. Per-second values are averaged over the whole run.'));
+}
+
+/* --- debrief --- */
+function showDebrief(r) {
+  setMode('debrief');
+  const keys = Object.keys(r.gained);
+  show('solid', el('div', { class: 'wrap' },
+    el('h1', null, r.won ? 'Apex destroyed' : 'Machine destroyed'),
+    el('p', { class: 'sub' }, WORLDS[r.wk].name + '. Survived ' + fmtTime(r.t) + ', level ' + r.level + ', ' + r.kills + ' kills. ' + (r.won ? 'All loot kept.' : 'Half of the loot was salvaged.')),
+    el('h2', null, 'Loot banked'),
+    keys.length ? resChips(r.gained, true) : el('p', { class: 'sub' }, 'Nothing salvaged this time.'),
+    el('h2', null, 'Damage report'),
+    damageReport(r.dmg, r.ks, r.peak, r.t),
+    el('p', { class: 'sub', style: 'margin-top:8px' }, 'Your machine took ' + Math.round(r.taken).toLocaleString('en') + ' damage.'),
+    el('h2', null, 'How ' + WORLDS[r.wk].name + ' evolved'),
+    el('div', { class: 'log' }, r.report.length ? r.report.map(l => el('div', null, l)) : el('div', null, 'No changes.')),
+    el('div', { class: 'row', style: 'margin-top:18px' },
+      el('button', { class: 'btn primary', onclick: showGarage }, 'Open garage'),
+      el('button', { class: 'btn', onclick: () => startRun(r.wk) }, 'Run it again'),
+      el('button', { class: 'btn ghost', onclick: showHub }, 'World map'))));
+}
+
+/* --- garage --- */
+let gTool = null;
+function garageStats() {
+  const v = makeVehicle(save.build); const s = compileVehicle(v, freshMods());
+  const warn = [];
+  if (!s.thrust) warn.push('No propulsion: add wheels, tracks or hover pads.');
+  if (s.powerFactor < 1) warn.push('Power overload: weapons fire at ' + Math.round(s.powerFactor * 100) + '%. Add batteries.');
+  if (!s.weapons.length) warn.push('No weapons.');
+  return el('div', { class: 'stats' },
+    el('div', null, 'Top speed ', el('b', null, Math.round(s.speed)), ', mass ', el('b', null, s.mass.toFixed(1)), ', turn ', el('b', null, s.turn.toFixed(1))),
+    el('div', null, 'Power ', el('b', null, s.power + ' supply / ' + s.demand + ' demand'), ', pickup range ', el('b', null, s.magnet)),
+    el('div', null, 'Weapons ', el('b', null, s.weapons.length), ', total HP ', el('b', null, v.list.reduce((a, b) => a + b.max, 0))),
+    warn.map(w => el('div', { class: 'warn' }, w)));
+}
+function garageTap(x, y, b) {
+  const list = save.build;
+  if (gTool === 'remove') {
+    if (b && b.t !== 'cab') {
+      list.splice(list.indexOf(b), 1); save.inv[b.t] = (save.inv[b.t] || 0) + 1;
+      const v = makeVehicle(list); const keep = reachable(v);
+      const lostKeys = new Set(v.list.filter(o => !keep.has(o)).map(o => o.x + ',' + o.y));
+      for (let i = list.length - 1; i >= 0; i--) if (lostKeys.has(list[i].x + ',' + list[i].y)) { save.inv[list[i].t] = (save.inv[list[i].t] || 0) + 1; list.splice(i, 1); }
+      if (lostKeys.size) toast(lostKeys.size + ' disconnected block' + (lostKeys.size > 1 ? 's' : '') + ' returned to storage', 1800);
+      persist();
+    }
+  } else if (gTool && B[gTool]) {
+    if (!b && (save.inv[gTool] || 0) > 0 && validCells(list, save.gridR).some(c => c[0] === x && c[1] === y)) {
+      list.push({ x, y, t: gTool, r: 0 }); save.inv[gTool]--; if (save.inv[gTool] <= 0) { delete save.inv[gTool]; gTool = null; }
+      persist();
+    } else if (b && B[b.t].dir) { b.r = (b.r + 1) % 4; persist(); }
+  } else if (b && B[b.t].dir) { b.r = (b.r + 1) % 4; persist(); }
+  showGarage(true);
+}
+function showGarage(keepScroll) {
+  G = null; V = null;
+  setMode('garage');
+  const st = keepScroll ? ui.scrollTop : 0;
+  const valid = gTool && B[gTool] && (save.inv[gTool] || 0) > 0 ? validCells(save.build, save.gridR) : [];
+  const invKeys = PLACEABLE.filter(t => (save.inv[t] || 0) > 0);
+  const tools = el('div', { class: 'tools' },
+    invKeys.map(t => el('button', { class: 'tool' + (gTool === t ? ' sel' : ''), onclick: () => { gTool = gTool === t ? null : t; showGarage(true); } },
+      el('span', { class: 'sw', style: 'background:' + B[t].color }), B[t].name + (upL(t) ? ' Mk ' + roman(upL(t) + 1) : '') + ' × ' + save.inv[t])),
+    el('button', { class: 'tool' + (gTool === 'remove' ? ' sel' : ''), onclick: () => { gTool = gTool === 'remove' ? null : 'remove'; showGarage(true); } }, 'Remove blocks'));
+  const hint = gTool === 'remove' ? 'Tap a block to put it back into storage.'
+    : gTool ? 'Tap a highlighted slot to place the ' + B[gTool].name + '.'
+    : invKeys.length ? 'Pick a block from storage, then tap a slot. Tap a weapon on the grid to turn it.' : 'Storage is empty. Craft blocks on the right. Tap a weapon to turn it.';
+  const nextGrid = save.gridR === 2 ? { r: 3, cost: { shard: 3, scrap: 150 } } : save.gridR === 3 ? { r: 4, cost: { shard: 10, scrap: 400, copper: 100 } } : null;
+  const craft = el('div', { class: 'craft' },
+    nextGrid ? el('div', { class: 'crow' }, el('div', { class: 'nm' }, 'Bigger build grid', el('div', null, 'Expand to ' + (nextGrid.r * 2 + 1) + '×' + (nextGrid.r * 2 + 1) + '. In a run you can always build one ring further.'), costChips(nextGrid.cost)),
+      el('button', { class: 'btn', disabled: !canAfford(nextGrid.cost), onclick: () => { pay(nextGrid.cost); save.gridR = nextGrid.r; persist(); showGarage(true); } }, 'Expand')) : null,
+    PLACEABLE.map(t => el('div', { class: 'crow' },
+      el('span', { class: 'sw', style: 'width:18px;height:18px;border-radius:5px;background:' + B[t].color }),
+      el('div', { class: 'nm' }, B[t].name + (save.inv[t] ? ' (' + save.inv[t] + ' stored)' : ''), el('div', null, B[t].desc), costChips(B[t].cost)),
+      el('button', { class: 'btn', disabled: !canAfford(B[t].cost), onclick: () => { pay(B[t].cost); save.inv[t] = (save.inv[t] || 0) + 1; persist(); snd(520, 0.1, 'triangle', 0.03); showGarage(true); } }, 'Craft'))));
+  const owned = ['cab'].concat(PLACEABLE.filter(t => save.build.some(b => b.t === t) || (save.inv[t] || 0) > 0));
+  const shop = el('div', { class: 'craft' }, owned.map(t => {
+    const L = upL(t), max = L >= UP_MAX, cost = max ? null : upCost(t);
+    return el('div', { class: 'crow' },
+      el('span', { class: 'sw', style: 'width:18px;height:18px;border-radius:5px;background:' + B[t].color }),
+      el('div', { class: 'nm' }, B[t].name, el('span', { class: 'mk' }, 'Mk ' + roman(L + 1)), el('div', null, max ? 'Fully upgraded.' : upEffect(t) + '.'), cost ? costChips(cost) : null),
+      max ? null : el('button', { class: 'btn', disabled: !canAfford(cost), onclick: () => { pay(cost); save.up[t] = L + 1; persist(); snd(660, 0.15, 'triangle', 0.035); toast(B[t].name + ' upgraded to Mk ' + roman(L + 2), 1400); showGarage(true); } }, 'Upgrade'));
+  }));
+  show('solid', el('div', { class: 'wrap' },
+    el('div', { class: 'row', style: 'justify-content:space-between' }, el('h1', null, 'Garage'), el('button', { class: 'btn primary', onclick: showHub }, 'Done')),
+    resChips(save.res),
+    el('div', { class: 'garage', style: 'margin-top:14px' },
+      el('div', null, gridView(save.build, save.gridR, { valid, onTap: garageTap }), el('p', { class: 'sub', style: 'margin:10px 0 0' }, hint), tools, garageStats()),
+      el('div', null, el('h2', { style: 'margin-top:0' }, 'Workshop upgrades'), el('p', { class: 'sub', style: 'margin:-4px 0 10px' }, 'Permanent. Applies to every block of that type, in every run.'), shop,
+        el('h2', null, 'Craft blocks'), craft))));
+  if (keepScroll) ui.scrollTop = st;
+}
+
+/* ======================= Input ======================= */
+cv.addEventListener('pointerdown', e => {
+  audioUnlock();
+  if (mode !== 'run' || JOY.active) return;
+  JOY.active = true; JOY.id = e.pointerId; JOY.ox = e.clientX; JOY.oy = e.clientY; JOY.x = 0; JOY.y = 0;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+  e.preventDefault();
+}, { passive: false });
+cv.addEventListener('pointermove', e => {
+  if (!JOY.active || e.pointerId !== JOY.id) return;
+  let dx = e.clientX - JOY.ox, dy = e.clientY - JOY.oy; const len = Math.hypot(dx, dy), max = 70;
+  if (len > max) { JOY.ox = e.clientX - dx / len * max; JOY.oy = e.clientY - dy / len * max; dx = dx / len * max; dy = dy / len * max; }
+  const m = Math.hypot(dx, dy) / max;
+  if (m < 0.08) { JOY.x = 0; JOY.y = 0; } else { JOY.x = dx / max; JOY.y = dy / max; }
+  e.preventDefault();
+}, { passive: false });
+function joyEnd(e) { if (e.pointerId === JOY.id) { JOY.active = false; JOY.x = 0; JOY.y = 0; JOY.id = -1; } }
+cv.addEventListener('pointerup', joyEnd);
+cv.addEventListener('pointercancel', joyEnd);
+document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') { if (mode === 'run') showPause(); else if (mode === 'pause') setMode('run'); } });
+// keyboard driving for desktop testing
+const KEYS = {};
+document.addEventListener('keydown', e => { KEYS[e.key.toLowerCase()] = true; });
+document.addEventListener('keyup', e => { KEYS[e.key.toLowerCase()] = false; });
+function keyboardJoy() {
+  if (JOY.active) return;
+  const x = (KEYS.d || KEYS.arrowright ? 1 : 0) - (KEYS.a || KEYS.arrowleft ? 1 : 0);
+  const y = (KEYS.s || KEYS.arrowdown ? 1 : 0) - (KEYS.w || KEYS.arrowup ? 1 : 0);
+  const l = Math.hypot(x, y); JOY.x = l ? x / l : 0; JOY.y = l ? y / l : 0;
+}
+$('pauseBtn').addEventListener('click', () => showPause());
+document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'run') showPause(); });
+window.addEventListener('resize', resize);
+
+/* ======================= Main loop ======================= */
+let acc = 0, last = 0;
+function frame(now) {
+  const dt = last ? Math.min(0.1, (now - last) / 1000) : 0; last = now;
+  if (mode === 'run' && G && !G.over) {
+    keyboardJoy();
+    acc += dt; let n = 0;
+    while (acc >= STEP && n < 6) { update(STEP); acc -= STEP; n++; if (!G || G.over || G.pendingLevels > 0) break; }
+    if (n >= 6) acc = 0;
+    if (G && !G.over && G.pendingLevels > 0 && mode === 'run') { acc = 0; showCards(); }
+  }
+  render();
+  hudT += dt; if (hudT > 0.1) { hudT = 0; if (G && (mode === 'run' || mode === 'pause')) updateHUD(); }
+  requestAnimationFrame(frame);
+}
+
+loadSave();
+resize();
+showHub();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
