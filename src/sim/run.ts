@@ -8,7 +8,7 @@ import { evolveWorld } from '../evolution/evolution';
 import type { Save, WorldState } from '../persistence/save';
 import {
   addBlock, bkey, compileVehicle, freshMods, makeVehicle, neighbours, reachable, validCells,
-  type Block, type Mods, type Vehicle,
+  type Block, type BuildCell, type Mods, type UpLevels, type Vehicle,
 } from '../vehicle/vehicle';
 
 const CS = T.cellSize;
@@ -22,12 +22,16 @@ export interface Enemy {
   res: Partial<Record<DType, number>>; pref: number; cd: number; flash: number;
   burn: number; burnDps: number; burnSrc?: string; dead: boolean; t0: number; bossLv: number;
   lastType: DType; lastSrc?: string; isMini?: boolean; dmgAcc: number; dmgT: number; crit: boolean;
+  /** stable id (co-op snapshots); owner index of the last hit and of the burn */
+  id: number; lastO: number; burnO: number;
   /** previous-step position, for render interpolation */
   px?: number; py?: number;
 }
 export interface Projectile {
   x: number; y: number; vx: number; vy: number; dmg: number; type: DType; src: string; life: number; r: number;
   pierce: number; burn: number; hits: Enemy[] | null;
+  /** owner: index into Run.players */
+  o: number;
   lob?: boolean; sx?: number; sy?: number; tx?: number; ty?: number; t?: number; T?: number; z?: number; aoe?: number;
 }
 export interface EnemyBullet { x: number; y: number; vx: number; vy: number; dmg: number; life: number; sp: Species | null }
@@ -41,7 +45,7 @@ export interface Fx {
 export interface Beam { x1: number; y1: number; x2: number; y2: number; life: number; max: number; c: string; w: number; zig?: boolean; glow?: boolean; seed: number }
 
 export type SimEvent =
-  | { k: 'toast'; msg: string; ms: number }
+  | { k: 'toast'; msg: string; ms: number; pid?: string }
   | { k: 'snd'; f: number; dur: number; type: OscillatorType; vol: number }
   | { k: 'shot'; f: number }
   | { k: 'hurt' };
@@ -58,6 +62,8 @@ export interface RunResult {
   peak: Record<string, number>; taken: number; newSpecies: number;
   /** extra numbers for records and trophies */
   stats: RunStats; loot: number; seed: number;
+  /** co-op: number of players and this player's id */
+  crew?: number; pid?: string;
 }
 
 /** Things measured during a run that feed records and trophies. */
@@ -67,7 +73,26 @@ export interface RunStats {
   maxHit: number; touched: boolean; firstTouchT: number;
 }
 
-export interface RunOptions { seed?: number; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
+/** One truck in the run. Solo runs have exactly one; co-op adds teammates. */
+export interface Player {
+  pid: string; name: string; color: string; idx: number;
+  V: Vehicle; mods: Mods; lvl: Record<string, number>; up: UpLevels; build: BuildCell[]; gridR: number;
+  joy: { x: number; y: number };
+  alive: boolean; gone: boolean; respawnT: number; lavaT: number; hazWarned: boolean; downs: number;
+  kills: number; dmgBy: Record<string, number>; killsSrc: Record<string, number>; peak: Record<string, number>;
+  taken: number; stats: RunStats;
+  /** co-op level-up cards still owed to this player */
+  pendingCards: number;
+}
+
+export interface PlayerSpec { pid: string; name: string; build: BuildCell[]; up: UpLevels; gridR: number; color?: string }
+
+export const PLAYER_COLORS = ['#00f0ff', '#ff2bd6', '#f5ff3b', '#5dff8a'];
+export const RESPAWN_TIME = 10;
+
+const freshStats = (): RunStats => ({ dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1 });
+
+export interface RunOptions { seed?: number; /** extra players (co-op); the save's owner is always player 0 */ crew?: PlayerSpec[]; pid?: string; name?: string; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
 
 export class Run {
   readonly save: Save;
@@ -79,30 +104,31 @@ export class Run {
   dmgNumbers: boolean;
 
   t = 0; level = 1; xp = 0; xpNeed = 7;
-  mods: Mods = freshMods();
-  lvl: Record<string, number> = {};
   budget = 2; wave = -1; pattern = 'ring'; patAng = 0; breather = false;
   mb1 = false; mb2 = false; boss = false; bossE: Enemy | null = null;
   won = false; over = false; endT = 0; wonPending = false;
   kills = 0; killsBy: Record<DType, number>; loot: Record<ResKey, number>;
   reroll = 1; pendingLevels = 0;
-  dmgBy: Record<string, number> = {}; killsSrc: Record<string, number> = {}; peak: Record<string, number> = {};
-  taken = 0; maxR = 30; zoom = 1; spawnD = 600; lavaT = 0; hazWarned = false; nextSp: Species | null = null;
+  maxR = 30; zoom = 1; spawnD = 600; nextSp: Species | null = null;
   shake = 0;
   result: RunResult | null = null;
+  /** co-op: one result per player, keyed by pid */
+  results: Record<string, RunResult> = {};
   readonly seed: number;
   readonly exhibition: boolean;
-  stats: RunStats = { dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1 };
+  readonly coop: boolean;
+  /** enemy pressure multiplier (more trucks, more enemies) */
+  readonly crowd: number;
+  readonly maxEnemies: number;
 
-  V: Vehicle;
+  players: Player[] = [];
   E: Enemy[] = []; PB: Projectile[] = []; EBL: EnemyBullet[] = []; PK: Pickup[] = [];
   FX: Fx[] = []; BEAMS: Beam[] = []; DEP: Deposit[] = []; HZ: Hazard[] = [];
   events: SimEvent[] = [];
-  /** input: joystick vector, length 0..1 */
-  joy = { x: 0, y: 0 };
 
   private hash = new Map<number, Enemy[]>();
   private readonly HS = 80;
+  private nextEnemyId = 1;
 
   constructor(save: Save, wk: string, opts: RunOptions = {}) {
     this.save = save;
@@ -118,12 +144,48 @@ export class Run {
     for (const t of DTYPES) this.killsBy[t] = 0;
     this.loot = {} as Record<ResKey, number>;
     for (const r of RES_KEYS) this.loot[r] = 0;
-    this.V = makeVehicle(save.build, save.up, this.rng);
-    this.recompile();
+    const specs: PlayerSpec[] = [{ pid: opts.pid ?? 'me', name: opts.name ?? 'You', build: save.build, up: save.up, gridR: save.gridR }, ...(opts.crew ?? [])];
+    for (const sp of specs) this.addPlayer(sp);
+    this.coop = this.players.length > 1;
+    const n = this.players.length;
+    this.crowd = 1 + 0.75 * (n - 1);
+    this.maxEnemies = Math.min(340, Math.round(T.maxEnemies * (1 + 0.45 * (n - 1))));
     for (const sp of this.W.species) { compileSpecies(sp); sp.st = { n: 0, dmg: 0, life: 0 }; }
     this.genMap();
     this.setView(opts.viewW ?? 1024, opts.viewH ?? 768);
   }
+
+  private addPlayer(sp: PlayerSpec): Player {
+    const idx = this.players.length;
+    const p: Player = {
+      pid: sp.pid, name: sp.name, color: sp.color ?? PLAYER_COLORS[idx % PLAYER_COLORS.length], idx,
+      V: makeVehicle(sp.build, sp.up, this.rng), mods: freshMods(), lvl: {}, up: sp.up, build: sp.build.map(b => ({ ...b })), gridR: sp.gridR,
+      joy: { x: 0, y: 0 }, alive: true, gone: false, respawnT: 0, lavaT: 0, hazWarned: false, downs: 0,
+      kills: 0, dmgBy: {}, killsSrc: {}, peak: {}, taken: 0, stats: freshStats(), pendingCards: 0,
+    };
+    // teammates start in a loose line next to each other
+    p.V.x = (idx % 2 ? 1 : -1) * Math.ceil(idx / 2) * 110;
+    this.players.push(p);
+    this.recompile(p);
+    this.updateBlockPositions(p);
+    return p;
+  }
+
+  /** index of the player on this device (0 on the host; a co-op client's mirror sets its own) */
+  local = 0;
+  // ---- solo-compatible accessors for the local player
+  get me(): Player { return this.players[this.local]; }
+  get V(): Vehicle { return this.me.V; }
+  get mods(): Mods { return this.me.mods; }
+  get lvl(): Record<string, number> { return this.me.lvl; }
+  get joy(): { x: number; y: number } { return this.me.joy; }
+  get dmgBy(): Record<string, number> { return this.me.dmgBy; }
+  get killsSrc(): Record<string, number> { return this.me.killsSrc; }
+  get peak(): Record<string, number> { return this.me.peak; }
+  get taken(): number { return this.me.taken; }
+  get stats(): RunStats { return this.me.stats; }
+  playerById(pid: string): Player | undefined { return this.players.find(p => p.pid === pid); }
+  private alivePlayers(): Player[] { return this.players.filter(p => p.alive); }
 
   setView(w: number, h: number): void {
     this.zoom = clamp(Math.min(w, h) / 620, 0.72, 1.6);
@@ -131,15 +193,15 @@ export class Run {
   }
 
   private emit(e: SimEvent) { if (this.visual) this.events.push(e); }
-  private toast(msg: string, ms = 1600) { this.emit({ k: 'toast', msg, ms }); }
+  /** toast for everyone, or only for one player when pid is given */
+  private toast(msg: string, ms = 1600, pid?: string) { this.emit({ k: 'toast', msg, ms, pid }); }
   private snd(f: number, dur: number, type: OscillatorType, vol: number) { this.emit({ k: 'snd', f, dur, type, vol }); }
-  private up(t: string) { return this.save.up[t] || 0; }
 
-  recompile(): void {
-    compileVehicle(this.V, this.mods, this.save.up);
+  recompile(p: Player = this.players[0]): void {
+    compileVehicle(p.V, p.mods, p.up);
     const cnt: Record<string, number> = {};
-    for (const b of this.V.list) cnt[b.t] = (cnt[b.t] || 0) + 1;
-    for (const t in cnt) this.peak[t] = Math.max(this.peak[t] || 0, cnt[t]);
+    for (const b of p.V.list) cnt[b.t] = (cnt[b.t] || 0) + 1;
+    for (const t in cnt) p.peak[t] = Math.max(p.peak[t] || 0, cnt[t]);
   }
 
   private genMap(): void {
@@ -170,7 +232,8 @@ export class Run {
     for (const r of RES_KEYS) {
       const n = Math.floor(this.loot[r] * mult);
       lootTotal += n;
-      if (n > 0 && !this.exhibition) { gained[r] = n; save.res[r] += n; }
+      if (n > 0) gained[r] = n;
+      if (n > 0 && !this.exhibition) save.res[r] += n;
     }
     let rep = { lines: ['Challenge runs are exhibition matches: no loot is banked and the sector does not evolve.'], children: 0 };
     if (!this.exhibition) {
@@ -180,11 +243,14 @@ export class Run {
       if (won) W.tier = Math.min(12, W.tier + 1);
     }
     this.snd(won ? 660 : 140, 0.6, won ? 'triangle' : 'sawtooth', 0.05);
-    this.result = {
-      won, t: this.t, kills: this.kills, level: this.level, gained, report: rep.lines, wk: this.wk,
-      dmg: { ...this.dmgBy }, ks: { ...this.killsSrc }, peak: { ...this.peak }, taken: this.taken, newSpecies: rep.children,
-      stats: { ...this.stats }, loot: lootTotal, seed: this.seed,
-    };
+    for (const p of this.players) {
+      this.results[p.pid] = {
+        won, t: this.t, kills: p.kills, level: this.level, gained: this.exhibition ? {} : { ...gained }, report: rep.lines, wk: this.wk,
+        dmg: { ...p.dmgBy }, ks: { ...p.killsSrc }, peak: { ...p.peak }, taken: p.taken, newSpecies: rep.children,
+        stats: { ...p.stats }, loot: lootTotal, seed: this.seed, crew: this.players.length, pid: p.pid,
+      };
+    }
+    this.result = this.results[this.players[0].pid];
   }
 
   // ------------------------------------------------------------ director
@@ -195,8 +261,14 @@ export class Run {
     return this.W.species.find(s => s.id === id) || this.W.species[0];
   }
 
+  /** Spawns happen around a random living truck. */
+  private anchor(): Vehicle {
+    const alive = this.alivePlayers();
+    return (alive.length ? this.rng.pick(alive) : this.players[0]).V;
+  }
+
   private spawnPos(): { x: number; y: number } {
-    const r = this.rng, V = this.V;
+    const r = this.rng, V = this.anchor();
     let a: number;
     if (this.pattern === 'flank') a = this.patAng + r.range(-0.6, 0.6);
     else if (this.pattern === 'stream') a = this.patAng + r.range(-0.2, 0.2);
@@ -208,16 +280,18 @@ export class Run {
   }
 
   spawnEnemy(sp: Species, x: number, y: number, bossLv = 0): Enemy {
-    const c = sp.c, tier = this.W.tier, V = this.V;
+    const c = sp.c, tier = this.W.tier, V = this.anchor();
     let hpM = (1 + 0.4 * (tier - 1)) * (1 + this.t / 260);
     let sc = 1, spdM = 1, dmgM = 1 + 0.12 * (tier - 1);
     if (bossLv === 1) { hpM *= 10; sc = 1.9; spdM = 0.75; dmgM *= 2.2; }
     if (bossLv === 2) { hpM *= 16 * (1 + 0.15 * (this.W.era - 1)); sc = 2.7; spdM = 0.65; dmgM *= 2.2; }
+    // bosses get tougher with more trucks shooting at them
+    if (bossLv && this.coop) hpM *= 1 + 0.6 * (this.players.length - 1);
     const e: Enemy = {
       sp, x, y, vx: 0, vy: 0, h: Math.atan2(V.y - y, V.x - x), hp: c.hp * hpM, max: c.hp * hpM, sc, r: (c.ext + 0.6) * EC * sc,
       speed: c.speed * spdM, melee: c.melee * dmgM, gun: bossLv ? 7 * (1 + 0.12 * (tier - 1)) : c.gun * dmgM, boom: bossLv ? 0 : c.boom * dmgM,
       res: c.res, pref: sp.pref || (bossLv ? 160 : 0), cd: this.rng.range(0.5, 1.8), flash: 0, burn: 0, burnDps: 0, dead: false,
-      t0: this.t, bossLv, lastType: 'kinetic', dmgAcc: 0, dmgT: 0, crit: false,
+      t0: this.t, bossLv, lastType: 'kinetic', dmgAcc: 0, dmgT: 0, crit: false, id: this.nextEnemyId++, lastO: 0, burnO: 0,
     };
     if (e.r > this.maxR) this.maxR = e.r;
     sp.st.n++;
@@ -235,7 +309,7 @@ export class Run {
   }
 
   private spawnCache(): void {
-    const r = this.rng, V = this.V;
+    const r = this.rng, V = this.anchor();
     const a = r.range(0, TAU), d = r.range(160, 260);
     const x = clamp(V.x + Math.cos(a) * d, -ARENA + 60, ARENA - 60), y = clamp(V.y + Math.sin(a) * d, -ARENA + 60, ARENA - 60);
     this.DEP.push({ x, y, res: r.wpick(this.Wd.res), amt: 14, prog: 0, cache: true });
@@ -256,12 +330,12 @@ export class Run {
     if (!this.mb2 && t >= T.miniBossTimes[1]) { this.mb2 = true; this.spawnBoss(1); }
     if (!this.boss && t >= RUN_LEN) { this.boss = true; this.spawnBoss(2); }
     const lvlAdj = clamp(Math.sqrt((this.level + 2) / (2 + t / 25)), 0.75, 1.5);
-    let rate = (0.7 + t / 38) * (0.8 + 0.2 * this.W.tier) * lvlAdj;
+    let rate = (0.7 + t / 38) * (0.8 + 0.2 * this.W.tier) * lvlAdj * this.crowd;
     if (this.breather) rate *= 0.35;
     if (this.boss) rate *= 0.3;
-    this.budget = Math.min(this.budget + rate * dt, T.budgetCap);
+    this.budget = Math.min(this.budget + rate * dt, T.budgetCap * this.crowd);
     let guard = 0;
-    while (this.E.length < T.maxEnemies && guard++ < 12) {
+    while (this.E.length < this.maxEnemies && guard++ < 12 + 6 * (this.players.length - 1)) {
       const sp = this.nextSp || (this.nextSp = this.pickSpecies());
       if (this.budget < sp.c.cost) break;
       this.budget -= sp.c.cost;
@@ -307,23 +381,25 @@ export class Run {
     return best;
   }
 
-  private credit(src: string | undefined, dmg: number, e: Enemy): void {
+  private credit(src: string | undefined, dmg: number, e: Enemy, o: number): void {
     if (!src) return;
-    this.dmgBy[src] = (this.dmgBy[src] || 0) + Math.min(dmg, Math.max(0, e.hp));
+    const by = this.players[o]?.dmgBy;
+    if (by) by[src] = (by[src] || 0) + Math.min(dmg, Math.max(0, e.hp));
   }
 
   private resist(e: Enemy, type: DType) { return Math.min(0.75, (e.res[type] || 0) + (this.W.res[type] || 0)); }
 
-  hitEnemy(e: Enemy, dmg: number, type: DType, src?: string): void {
+  hitEnemy(e: Enemy, dmg: number, type: DType, src?: string, o = 0): void {
     if (e.dead) return;
+    const pl = this.players[o] ?? this.players[0];
     let crit = false;
-    if (this.rng.next() < this.mods.crit) { dmg *= 2; crit = true; }
+    if (this.rng.next() < pl.mods.crit) { dmg *= 2; crit = true; }
     dmg *= 1 - this.resist(e, type);
-    this.credit(src, dmg, e);
-    e.hp -= dmg; e.flash = 0.07; e.lastType = type;
+    this.credit(src, dmg, e, o);
+    e.hp -= dmg; e.flash = 0.07; e.lastType = type; e.lastO = o;
     if (src) e.lastSrc = src;
-    if (crit) this.stats.crits++;
-    if (dmg > this.stats.maxHit) this.stats.maxHit = dmg;
+    if (crit) pl.stats.crits++;
+    if (dmg > pl.stats.maxHit) pl.stats.maxHit = dmg;
     if (this.dmgNumbers) { e.dmgAcc += dmg; if (crit) e.crit = true; }
     if (e.hp <= 0) this.killEnemy(e);
   }
@@ -341,9 +417,11 @@ export class Run {
     const r = this.rng;
     e.dead = true;
     this.kills++;
+    const pl = this.players[e.lastO] ?? this.players[0];
+    pl.kills++;
     if (this.dmgNumbers) this.flushDmg(e);
     this.killsBy[e.lastType] = (this.killsBy[e.lastType] || 0) + 1;
-    if (e.lastSrc) this.killsSrc[e.lastSrc] = (this.killsSrc[e.lastSrc] || 0) + 1;
+    if (e.lastSrc) pl.killsSrc[e.lastSrc] = (pl.killsSrc[e.lastSrc] || 0) + 1;
     if (!e.bossLv) e.sp.st.life += this.t - e.t0;
     this.burst(e.x, e.y, e.bossLv ? 40 : 7, EB.core.color, e.bossLv ? 260 : 140);
     const xp = Math.max(1, Math.round(e.sp.c.cost * 1.3 * (e.bossLv === 2 ? 25 : e.bossLv ? 8 : 1)));
@@ -357,7 +435,7 @@ export class Run {
       }
     }
     if (e.bossLv) this.PK.push({ x: e.x, y: e.y, k: 'shard', amt: e.bossLv === 2 ? 4 : 1, vx: 0, vy: 0 });
-    if (this.mods.heal) { const b = this.V.list.find(o => o.hp < o.max); if (b) b.hp = Math.min(b.max, b.hp + this.mods.heal); }
+    if (pl.mods.heal && pl.alive) { const b = pl.V.list.find(o => o.hp < o.max); if (b) b.hp = Math.min(b.max, b.hp + pl.mods.heal); }
     this.shake = Math.max(this.shake, e.bossLv ? 14 : 1.5);
     if (e.bossLv) this.snd(100, 0.8, 'sawtooth', 0.06);
     else if (r.next() < 0.3) this.snd(220, 0.08, 'triangle', 0.02);
@@ -365,48 +443,50 @@ export class Run {
   }
 
   private dropXP(x: number, y: number, amt: number): void {
-    if (this.PK.length > 520) { this.xp += amt * (1 + this.mods.xp); this.checkLevel(); return; }
+    if (this.PK.length > 520) { this.xp += amt * (1 + this.players[0].mods.xp); this.checkLevel(); return; }
     this.PK.push({ x, y, k: 'xp', amt, vx: 0, vy: 0 });
   }
 
+  /** Team XP: every level gives each truck a card. Solo runs pause for it (pendingLevels). */
   private checkLevel(): void {
     while (this.xp >= this.xpNeed) {
       this.xp -= this.xpNeed;
       this.level++;
-      this.xpNeed = Math.round(5 + this.level * 4 + this.level * this.level * 0.2);
-      this.pendingLevels++;
+      this.xpNeed = Math.round((5 + this.level * 4 + this.level * this.level * 0.2) * (this.coop ? 1 + 0.35 * (this.players.length - 1) : 1));
+      if (this.coop) { for (const p of this.players) if (!p.gone) p.pendingCards++; }
+      else this.pendingLevels++;
     }
   }
 
-  private explode(x: number, y: number, r: number, dmg: number, type: DType, src?: string): void {
-    this.query(x, y, r + this.maxR, e => { const d = Math.hypot(e.x - x, e.y - y); if (d < r + e.r) this.hitEnemy(e, dmg, type, src); });
+  private explode(x: number, y: number, r: number, dmg: number, type: DType, src: string | undefined, o: number): void {
+    this.query(x, y, r + this.maxR, e => { const d = Math.hypot(e.x - x, e.y - y); if (d < r + e.r) this.hitEnemy(e, dmg, type, src, o); });
     this.ring(x, y, r, DCOL[type]);
     this.burst(x, y, 10, DCOL[type], 180);
     this.shake = Math.max(this.shake, 3);
     this.snd(90, 0.25, 'sawtooth', 0.025);
   }
 
-  private fireWeapons(dt: number): void {
-    const s = this.V.s, V = this.V, r = this.rng;
+  private fireWeapons(p: Player, dt: number): void {
+    const V = p.V, s = V.s, r = this.rng, o = p.idx;
     for (const b of s.weapons) {
       if (b.dead) continue;
-      const d = B[b.t], w = d.w!, lv = this.lvl[b.t] || 0;
+      const d = B[b.t], w = d.w!, lv = p.lvl[b.t] || 0;
       b.cd -= dt;
       if (b.cd > 0) continue;
-      const range = w.range * (1 + this.mods.range);
+      const range = w.range * (1 + p.mods.range);
       const face = V.h + (d.dir ? (b.r * Math.PI) / 2 : 0);
       const tgt = this.findTarget(b.wx, b.wy, range, face, (w.arc * Math.PI) / 180);
       if (!tgt) { b.cd = 0.08; continue; }
-      const U = this.up(b.t);
-      const rate = w.rate * (1 + 0.12 * lv) * (1 + 0.05 * U) * (1 + this.mods.rate) * b.syn.rateM * s.powerFactor;
+      const U = p.up[b.t] || 0;
+      const rate = w.rate * (1 + 0.12 * lv) * (1 + 0.05 * U) * (1 + p.mods.rate) * b.syn.rateM * s.powerFactor;
       b.cd = 1 / rate;
-      const dmg = w.dmg * (1 + 0.25 * lv) * (1 + 0.15 * U) * (1 + (this.mods.dmg[w.type] || 0)) * b.syn.dmgM;
+      const dmg = w.dmg * (1 + 0.25 * lv) * (1 + 0.15 * U) * (1 + (p.mods.dmg[w.type] || 0)) * b.syn.dmgM;
       const src = b.t;
       const ang = Math.atan2(tgt.y - b.wy, tgt.x - b.wx);
       if (w.beam) {
-        this.hitEnemy(tgt, dmg, w.type, src);
+        this.hitEnemy(tgt, dmg, w.type, src, o);
         if (this.visual) this.BEAMS.push({ x1: b.wx, y1: b.wy, x2: tgt.x, y2: tgt.y, life: 0.12, max: 0.12, c: DCOL.energy, w: 3, glow: true, seed: r.next() });
-        this.emit({ k: 'shot', f: 880 });
+        if (o === 0) this.emit({ k: 'shot', f: 880 });
       } else if (w.chain) {
         const links = w.chain + b.syn.chain;
         const hit: Enemy[] = [tgt];
@@ -416,8 +496,8 @@ export class Run {
             this.BEAMS.push({ x1: px, y1: py, x2: cur.x, y2: cur.y, life: 0.16, max: 0.16, c: DCOL.electric, w: 3.5, zig: true, glow: true, seed: r.next() });
             if (this.FX.length < 600) this.burst(cur.x, cur.y, 3, '#e6dcff', 120);
           }
-          this.hitEnemy(cur, dmg * (j === 0 ? 1 : T.teslaFalloff), 'electric', src);
-          if (j + 1 > this.stats.maxChain) this.stats.maxChain = j + 1;
+          this.hitEnemy(cur, dmg * (j === 0 ? 1 : T.teslaFalloff), 'electric', src, o);
+          if (j + 1 > p.stats.maxChain) p.stats.maxChain = j + 1;
           px = cur.x; py = cur.y;
           let nb: Enemy | null = null, nd = T.teslaJump;
           this.query(px, py, T.teslaJump, e => {
@@ -429,72 +509,114 @@ export class Run {
           hit.push(nb);
           cur = nb;
         }
-        this.emit({ k: 'shot', f: 520 });
+        if (o === 0) this.emit({ k: 'shot', f: 520 });
       } else if (w.lob) {
         const TT = 0.85;
         this.PB.push({ lob: true, sx: b.wx, sy: b.wy, tx: tgt.x + tgt.vx * TT * 0.6, ty: tgt.y + tgt.vy * TT * 0.6, t: 0, T: TT, x: b.wx, y: b.wy,
-          vx: 0, vy: 0, dmg, type: w.type, src, aoe: w.aoe, life: TT + 0.1, r: 4, pierce: 0, burn: 0, hits: null });
-        this.emit({ k: 'shot', f: 160 });
+          vx: 0, vy: 0, dmg, type: w.type, src, aoe: w.aoe, life: TT + 0.1, r: 4, pierce: 0, burn: 0, hits: null, o });
+        if (o === 0) this.emit({ k: 'shot', f: 160 });
       } else {
         const n = w.pellets || 1;
         for (let i = 0; i < n; i++) {
           const a = ang + r.range(-(w.spread || 0), w.spread || 0);
           const sp = (w.speed || 600) * r.range(0.9, 1.08);
           this.PB.push({ x: b.wx, y: b.wy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, dmg, type: w.type, src,
-            life: w.life || range / (w.speed || 600) + 0.05, r: w.type === 'fire' ? 7 : 3, pierce: w.pierce || 0, burn: w.burn || 0, hits: null });
+            life: w.life || range / (w.speed || 600) + 0.05, r: w.type === 'fire' ? 7 : 3, pierce: w.pierce || 0, burn: w.burn || 0, hits: null, o });
         }
-        this.emit({ k: 'shot', f: w.type === 'fire' ? 200 : 330 });
+        if (o === 0) this.emit({ k: 'shot', f: w.type === 'fire' ? 200 : 330 });
       }
     }
   }
 
-  private nearestBlock(x: number, y: number): { b: Block | null; d: number } {
+  private nearestBlock(p: Player, x: number, y: number): { b: Block | null; d: number } {
     let best: Block | null = null, bd = Infinity;
-    for (const b of this.V.list) { const d = (b.wx - x) ** 2 + (b.wy - y) ** 2; if (d < bd) { bd = d; best = b; } }
+    for (const b of p.V.list) { const d = (b.wx - x) ** 2 + (b.wy - y) ** 2; if (d < bd) { bd = d; best = b; } }
     return { b: best, d: Math.sqrt(bd) };
   }
 
-  hitPlayer(b: Block | null, dmg: number, sp: Species | null): void {
-    if (!b || this.over || b.dead) return;
-    const V = this.V;
-    dmg *= 1 - this.mods.armor;
+  /** Nearest living truck to a point (enemy targeting). */
+  private nearestPlayer(x: number, y: number): Player | null {
+    let best: Player | null = null, bd = Infinity;
+    for (const p of this.players) {
+      if (!p.alive) continue;
+      const d = (p.V.x - x) ** 2 + (p.V.y - y) ** 2;
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  hitPlayer(b: Block | null, dmg: number, sp: Species | null, p: Player = this.players[0]): void {
+    if (!b || this.over || b.dead || !p.alive) return;
+    const V = p.V;
+    dmg *= 1 - p.mods.armor;
     if (B[b.t].cat !== 'armor') {
       let arm: Block | null = null;
       for (const n of neighbours(V, b)) if (B[n.t].cat === 'armor' && (!arm || n.hp > arm.hp)) arm = n;
       if (arm) {
         const tr = dmg * 0.4;
         dmg -= tr; arm.hp -= tr; arm.fl = 0.1;
-        if (arm.hp <= 0) this.destroyBlock(arm);
+        if (arm.hp <= 0) this.destroyBlock(p, arm);
       }
     }
     if (sp) sp.st.dmg += dmg;
-    if (b.dead) return;
-    this.taken += dmg;
+    if (b.dead || !p.alive) return;
+    p.taken += dmg;
     b.hp -= dmg; b.fl = 0.1; V.flash = 0.08;
-    this.shake = Math.max(this.shake, Math.min(8, 1 + dmg * 0.2));
-    if (b.hp <= 0) this.destroyBlock(b);
+    if (p.idx === 0) this.shake = Math.max(this.shake, Math.min(8, 1 + dmg * 0.2));
+    if (b.hp <= 0) this.destroyBlock(p, b);
   }
 
-  private destroyBlock(b: Block): void {
+  private destroyBlock(p: Player, b: Block): void {
     if (b.dead || this.over) return;
-    const V = this.V;
+    const V = p.V;
     b.dead = true;
     V.list = V.list.filter(o => o !== b);
     V.map.delete(bkey(b.x, b.y));
     this.burst(b.wx, b.wy, 14, B[b.t].color, 200);
-    this.shake = Math.max(this.shake, 7);
+    if (p.idx === 0) { this.shake = Math.max(this.shake, 7); this.emit({ k: 'hurt' }); }
     this.snd(180, 0.3, 'sawtooth', 0.04);
-    this.emit({ k: 'hurt' });
-    if (b.t === 'cab') { this.end(false); return; }
+    if (b.t === 'cab') { this.down(p); return; }
     const keep = reachable(V);
     const lost = V.list.filter(o => !keep.has(o));
-    this.stats.blocksLost += 1 + lost.length;
+    p.stats.blocksLost += 1 + lost.length;
     if (lost.length) {
       for (const o of lost) { o.dead = true; V.map.delete(bkey(o.x, o.y)); this.debris(o); }
       V.list = V.list.filter(o => keep.has(o));
-      this.toast(lost.length === 1 ? B[lost[0].t].name + ' broke off!' : lost.length + ' blocks broke off!', 1400);
-    } else this.toast(B[b.t].name + ' destroyed', 900);
-    this.recompile();
+      this.toast(lost.length === 1 ? B[lost[0].t].name + ' broke off!' : lost.length + ' blocks broke off!', 1400, p.pid);
+    } else this.toast(B[b.t].name + ' destroyed', 900, p.pid);
+    this.recompile(p);
+  }
+
+  /** Cab destroyed. Solo: the run ends. Co-op: the truck respawns unless the whole crew is down. */
+  private down(p: Player): void {
+    p.stats.blocksLost += p.V.list.length;
+    if (!this.coop) { this.end(false); return; }
+    for (const o of p.V.list) { o.dead = true; this.debris(o); }
+    p.V.list = []; p.V.map.clear();
+    p.alive = false; p.downs++;
+    p.respawnT = RESPAWN_TIME;
+    if (!this.alivePlayers().length) { this.end(false); return; }
+    this.toast(p.name + "'s truck is wrecked! Back in " + RESPAWN_TIME + ' s.', 2400);
+  }
+
+  private respawn(p: Player): void {
+    const mate = this.alivePlayers()[0];
+    const V = makeVehicle(p.build, p.up, this.rng);
+    V.x = clamp((mate ? mate.V.x : 0) + this.rng.range(-90, 90), -ARENA + 60, ARENA - 60);
+    V.y = clamp((mate ? mate.V.y : 0) + this.rng.range(-90, 90), -ARENA + 60, ARENA - 60);
+    p.V = V; p.alive = true;
+    this.recompile(p);
+    this.updateBlockPositions(p);
+    this.toast(p.name + ' is back on shift!', 1600);
+  }
+
+  /** A player left the session: their truck disappears for good. */
+  removePlayer(pid: string): void {
+    const p = this.playerById(pid);
+    if (!p || p.gone) return;
+    p.gone = true; p.alive = false; p.V.list = []; p.V.map.clear(); p.pendingCards = 0;
+    this.toast(p.name + ' left the shift', 2000);
+    if (!this.over && !this.alivePlayers().length) this.end(false);
   }
 
   // ------------------------------------------------------------ fx helpers
@@ -520,33 +642,21 @@ export class Run {
     return false;
   }
 
-  // ------------------------------------------------------------ step
-  update(dt: number): void {
-    if (this.over) return;
-    this.t += dt;
-    if (this.wonPending && this.t >= this.endT) { this.end(true); return; }
-    const V = this.V, s = V.s, r = this.rng;
-    const haz = this.Wd.hazard;
-    const onHaz = this.inHazard(V.x, V.y);
-
-    // movement
-    const mag = Math.min(1, Math.hypot(this.joy.x, this.joy.y));
+  /** Steering and arcade physics for one truck. Shared with the co-op client's prediction. */
+  static drive(V: Vehicle, joy: { x: number; y: number }, dt: number, onHaz: boolean, haz: string, st?: RunStats, t = 0): void {
+    const s = V.s;
+    const mag = Math.min(1, Math.hypot(joy.x, joy.y));
     let fwd = 0;
-    const st = this.stats;
     if (mag > 0.05) {
-      if (!st.touched) { st.touched = true; st.firstTouchT = this.t; }
-      const ta = Math.atan2(this.joy.y, this.joy.x);
+      if (st && !st.touched) { st.touched = true; st.firstTouchT = t; }
+      const ta = Math.atan2(joy.y, joy.x);
       const da = angDiff(V.h, ta);
       const tr = s.turn * dt;
       const turn = clamp(da, -tr, tr);
       V.h += turn;
-      st.spins += Math.abs(turn) / TAU;
+      if (st) st.spins += Math.abs(turn) / TAU;
       fwd = Math.max(0.2, Math.cos(angDiff(V.h, ta)));
-    } else st.idleT += dt;
-    if (onHaz) st.hazardT += dt;
-    if (st.takenAt120 < 0 && this.t >= 120) st.takenAt120 = this.taken;
-    const cabB = V.map.get(bkey(0, 0));
-    if (cabB) st.minCab = Math.min(st.minCab, cabB.hp / cabB.max);
+    } else if (st) st.idleT += dt;
     let spd = s.speed * mag * fwd;
     let grip = 6;
     if (onHaz && haz === 'mud') spd *= 0.42 + 0.58 * s.trackFrac;
@@ -556,40 +666,59 @@ export class Run {
     V.vy += (Math.sin(V.h) * spd - V.vy) * k;
     V.x = clamp(V.x + V.vx * dt, -ARENA + 30, ARENA - 30);
     V.y = clamp(V.y + V.vy * dt, -ARENA + 30, ARENA - 30);
-    st.dist += Math.hypot(V.vx, V.vy) * dt;
+    if (st) st.dist += Math.hypot(V.vx, V.vy) * dt;
+  }
 
-    // block world positions
-    const a = V.h + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
-    for (const b of V.list) {
-      b.wx = V.x + (b.x * ca - b.y * sa) * CS;
-      b.wy = V.y + (b.x * sa + b.y * ca) * CS;
-      if (b.fl > 0) b.fl -= dt;
-    }
+  // ------------------------------------------------------------ step
+  update(dt: number): void {
+    if (this.over) return;
+    this.t += dt;
+    if (this.wonPending && this.t >= this.endT) { this.end(true); return; }
+    const r = this.rng;
+    const haz = this.Wd.hazard;
 
-    // hazards
-    if (onHaz && haz === 'lava') {
-      this.lavaT += dt;
-      if (!this.hazWarned) { this.hazWarned = true; this.toast(this.Wd.hazardText, 2400); }
-      if (this.lavaT >= 0.25) {
-        this.lavaT = 0;
-        const dmg = 2.5 * (1 - s.hoverFrac);
-        if (dmg > 0.2 && V.list.length) this.hitPlayer(r.pick(V.list), dmg, null);
-        if (this.over) return;
+    for (const p of this.players) {
+      if (p.gone) continue;
+      if (!p.alive) {
+        p.respawnT -= dt;
+        if (p.respawnT <= 0) this.respawn(p);
+        continue;
       }
-    } else if (onHaz && !this.hazWarned) { this.hazWarned = true; this.toast(this.Wd.hazardText, 2400); }
+      const V = p.V, s = V.s, st = p.stats;
+      const onHaz = this.inHazard(V.x, V.y);
+      Run.drive(V, p.joy, dt, onHaz, haz, st, this.t);
+      if (onHaz) st.hazardT += dt;
+      if (st.takenAt120 < 0 && this.t >= 120) st.takenAt120 = p.taken;
+      const cabB = V.map.get(bkey(0, 0));
+      if (cabB) st.minCab = Math.min(st.minCab, cabB.hp / cabB.max);
+      this.updateBlockPositions(p);
+      for (const b of V.list) if (b.fl > 0) b.fl -= dt;
 
-    // regen / repair
-    for (const b of V.list) {
-      const d = B[b.t];
-      const hm = 1 + 0.25 * this.up(b.t);
-      const heal = this.mods.regen + (d.regen || 0) * hm;
-      if (heal) b.hp = Math.min(b.max, b.hp + heal * dt);
-      if (d.repair) for (const n of neighbours(V, b)) n.hp = Math.min(n.max, n.hp + d.repair * hm * dt);
+      // hazards
+      if (onHaz && haz === 'lava') {
+        p.lavaT += dt;
+        if (!p.hazWarned) { p.hazWarned = true; this.toast(this.Wd.hazardText, 2400, p.pid); }
+        if (p.lavaT >= 0.25) {
+          p.lavaT = 0;
+          const dmg = 2.5 * (1 - s.hoverFrac);
+          if (dmg > 0.2 && V.list.length) this.hitPlayer(r.pick(V.list), dmg, null, p);
+          if (this.over) return;
+        }
+      } else if (onHaz && !p.hazWarned) { p.hazWarned = true; this.toast(this.Wd.hazardText, 2400, p.pid); }
+
+      // regen / repair
+      for (const b of V.list) {
+        const d = B[b.t];
+        const hm = 1 + 0.25 * (p.up[b.t] || 0);
+        const heal = p.mods.regen + (d.regen || 0) * hm;
+        if (heal) b.hp = Math.min(b.max, b.hp + heal * dt);
+        if (d.repair) for (const n of neighbours(V, b)) n.hp = Math.min(n.max, n.hp + d.repair * hm * dt);
+      }
     }
 
     this.director(dt);
     this.buildHash();
-    this.fireWeapons(dt);
+    for (const p of this.players) if (p.alive) this.fireWeapons(p, dt);
     if (this.over) return;
 
     // player projectiles
@@ -601,19 +730,20 @@ export class Run {
         p.t! += dt;
         const kk = Math.min(1, p.t! / p.T!);
         p.x = lerp(p.sx!, p.tx!, kk); p.y = lerp(p.sy!, p.ty!, kk); p.z = Math.sin(kk * Math.PI) * 60;
-        if (kk >= 1) { this.explode(p.tx!, p.ty!, p.aoe!, p.dmg, p.type, p.src); swapRemove(PB, i); }
+        if (kk >= 1) { this.explode(p.tx!, p.ty!, p.aoe!, p.dmg, p.type, p.src, p.o); swapRemove(PB, i); }
         continue;
       }
       p.x += p.vx * dt; p.y += p.vy * dt;
       let done = false;
+      const owner = this.players[p.o] ?? this.players[0];
       this.query(p.x, p.y, p.r + this.maxR, e => {
         if (done) return;
         if (p.hits && p.hits.includes(e)) return;
         if (Math.hypot(e.x - p.x, e.y - p.y) < e.r + p.r) {
-          this.hitEnemy(e, p.dmg, p.type, p.src);
+          this.hitEnemy(e, p.dmg, p.type, p.src, p.o);
           if (p.burn) {
-            e.burn = 2; e.burnSrc = p.src;
-            e.burnDps = Math.max(e.burnDps, p.burn * (1 + 0.15 * this.up(p.src)) * (1 + (this.mods.dmg.fire || 0)));
+            e.burn = 2; e.burnSrc = p.src; e.burnO = p.o;
+            e.burnDps = Math.max(e.burnDps, p.burn * (1 + 0.15 * (owner.up[p.src] || 0)) * (1 + (owner.mods.dmg.fire || 0)));
           }
           if (p.pierce > 0) { p.pierce--; (p.hits || (p.hits = [])).push(e); }
           else done = true;
@@ -623,19 +753,21 @@ export class Run {
     }
 
     // enemies
-    const pr = s.radius;
     for (const e of this.E) {
       if (e.dead) continue;
       if (e.flash > 0) e.flash -= dt;
       if (e.burn > 0) {
-        e.burn -= dt; e.lastType = 'fire'; e.lastSrc = e.burnSrc;
+        e.burn -= dt; e.lastType = 'fire'; e.lastSrc = e.burnSrc; e.lastO = e.burnO;
         const bd = e.burnDps * dt * (1 - this.resist(e, 'fire'));
-        this.credit(e.burnSrc, bd, e);
+        this.credit(e.burnSrc, bd, e, e.burnO);
         e.hp -= bd;
         if (this.dmgNumbers) e.dmgAcc += bd;
         if (e.hp <= 0) { this.killEnemy(e); continue; }
       }
       if (this.dmgNumbers && e.dmgAcc > 0 && this.t - e.dmgT > 0.3) this.flushDmg(e);
+      const tp = this.nearestPlayer(e.x, e.y);
+      if (!tp) continue;
+      const V = tp.V, pr = V.s.radius;
       const dx = V.x - e.x, dy = V.y - e.y, d = Math.hypot(dx, dy) || 1;
       let tx = dx / d, ty = dy / d;
       if (e.pref > 0) {
@@ -653,14 +785,14 @@ export class Run {
       e.vx += (tvx - e.vx) * kk; e.vy += (tvy - e.vy) * kk;
       e.x += e.vx * dt; e.y += e.vy * dt;
       if (Math.abs(e.vx) + Math.abs(e.vy) > 8) e.h = Math.atan2(e.vy, e.vx);
-      // contact with the vehicle
+      // contact with the nearest truck
       if (d < pr + e.r) {
-        const nb = this.nearestBlock(e.x, e.y);
+        const nb = this.nearestBlock(tp, e.x, e.y);
         if (nb.b && nb.d < CS * 0.62 + e.r) {
           if (e.boom > 0) {
             for (const b of V.list.slice()) {
               const bd = Math.hypot(b.wx - e.x, b.wy - e.y);
-              if (bd < 50) this.hitPlayer(b, e.boom * (1 - bd / 70), e.sp);
+              if (bd < 50) this.hitPlayer(b, e.boom * (1 - bd / 70), e.sp, tp);
               if (this.over) return;
             }
             this.ring(e.x, e.y, 50, '#ff7a1a');
@@ -669,7 +801,7 @@ export class Run {
             e.sp.st.life += this.t - e.t0;
             continue;
           }
-          this.hitPlayer(nb.b, e.melee * dt * 0.8, e.sp);
+          this.hitPlayer(nb.b, e.melee * dt * 0.8, e.sp, tp);
           if (this.over) return;
           const push = CS * 0.62 + e.r - nb.d;
           const ux = (e.x - nb.b.wx) / (nb.d || 1), uy = (e.y - nb.b.wy) / (nb.d || 1);
@@ -698,21 +830,27 @@ export class Run {
       const p = EBL[i];
       p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
       let hit = false;
-      if (Math.hypot(p.x - V.x, p.y - V.y) < pr + 4) {
-        const nb = this.nearestBlock(p.x, p.y);
-        if (nb.b && nb.d < CS * 0.62 + 4) { this.hitPlayer(nb.b, p.dmg, p.sp); hit = true; if (this.over) return; }
+      for (const pl of this.players) {
+        if (!pl.alive) continue;
+        const V = pl.V;
+        if (Math.hypot(p.x - V.x, p.y - V.y) < V.s.radius + 4) {
+          const nb = this.nearestBlock(pl, p.x, p.y);
+          if (nb.b && nb.d < CS * 0.62 + 4) { this.hitPlayer(nb.b, p.dmg, p.sp, pl); hit = true; if (this.over) return; break; }
+        }
       }
       if (hit || p.life <= 0) swapRemove(EBL, i);
     }
 
-    // deposits
+    // deposits: any truck can salvage
     const DEP = this.DEP;
     for (let i = DEP.length - 1; i >= 0; i--) {
       const dp = DEP[i];
-      if (Math.hypot(dp.x - V.x, dp.y - V.y) < 44 + pr * 0.5) {
+      let miner: Player | null = null;
+      for (const pl of this.players) if (pl.alive && Math.hypot(dp.x - pl.V.x, dp.y - pl.V.y) < 44 + pl.V.s.radius * 0.5) { miner = pl; break; }
+      if (miner) {
         dp.prog += dt / 1.6;
         if (dp.prog >= 1) {
-          if (dp.cache) this.stats.caches++; else this.stats.mined++;
+          if (dp.cache) miner.stats.caches++; else miner.stats.mined++;
           for (let j = 0; j < dp.amt; j++) {
             const an = r.range(0, TAU);
             this.PK.push({ x: dp.x, y: dp.y, k: dp.res, amt: 1, vx: Math.cos(an) * r.range(60, 160), vy: Math.sin(an) * r.range(60, 160) });
@@ -724,20 +862,27 @@ export class Run {
       } else dp.prog = Math.max(0, dp.prog - dt * 0.5);
     }
 
-    // pickups
-    const mr = s.magnet, PK = this.PK;
+    // pickups: pulled to the nearest truck within its magnet range; loot and XP are shared
+    const PK = this.PK;
     for (let i = PK.length - 1; i >= 0; i--) {
       const p = PK[i];
-      const dx = V.x - p.x, dy = V.y - p.y, d = Math.hypot(dx, dy);
-      if (d < mr) {
+      let best: Player | null = null, bd = Infinity;
+      for (const pl of this.players) {
+        if (!pl.alive) continue;
+        const d = Math.hypot(pl.V.x - p.x, pl.V.y - p.y);
+        if (d < pl.V.s.magnet && d < bd) { bd = d; best = pl; }
+      }
+      if (best) {
+        const V = best.V, mr = V.s.magnet;
+        const dx = V.x - p.x, dy = V.y - p.y, d = bd;
         const pull = 520 * (1 - d / mr) + 160;
         p.vx += (dx / (d || 1)) * pull * dt * 6;
         p.vy += (dy / (d || 1)) * pull * dt * 6;
       }
       p.vx *= 1 - Math.min(1, 4 * dt); p.vy *= 1 - Math.min(1, 4 * dt);
       p.x += p.vx * dt; p.y += p.vy * dt;
-      if (d < 22 + pr * 0.4) {
-        if (p.k === 'xp') { this.xp += p.amt * (1 + this.mods.xp); this.checkLevel(); }
+      if (best && bd < 22 + best.V.s.radius * 0.4) {
+        if (p.k === 'xp') { this.xp += p.amt * (1 + best.mods.xp); this.checkLevel(); }
         else this.loot[p.k] += p.amt;
         swapRemove(PK, i);
       }
@@ -758,17 +903,17 @@ export class Run {
     const BE = this.BEAMS;
     for (let i = BE.length - 1; i >= 0; i--) { BE[i].life -= dt; if (BE[i].life <= 0) swapRemove(BE, i); }
     if (this.shake > 0) this.shake = Math.max(0, this.shake - 30 * dt);
-    if (V.flash > 0) V.flash -= dt;
+    for (const p of this.players) if (p.V.flash > 0) p.V.flash -= dt;
   }
 
   // ------------------------------------------------------------ level-up cards
-  makeCards(): Card[] {
-    const r = this.rng, V = this.V;
+  makeCards(p: Player = this.players[0]): Card[] {
+    const r = this.rng, V = p.V;
     const cards: Card[] = [];
     const used = new Set<string>();
     const weaponsOn = [...new Set(V.s.weapons.map(b => b.t))];
     const placeable = Object.keys(B).filter(k => k !== 'cab');
-    const canPlace = validCells(V.list, this.save.gridR + 1).length > 0;
+    const canPlace = validCells(V.list, p.gridR + 1).length > 0;
     let guard = 0;
     while (cards.length < 3 && guard++ < 80) {
       const x = r.next();
@@ -777,46 +922,59 @@ export class Run {
         const t = r.pick(placeable);
         c = { kind: 'block', t, key: 'b' + t, label: 'New block', title: B[t].name, desc: B[t].desc };
       } else if (x < 0.8 && weaponsOn.length) {
-        const t = r.pick(weaponsOn), l = this.lvl[t] || 0;
+        const t = r.pick(weaponsOn), l = p.lvl[t] || 0;
         c = { kind: 'up', t, key: 'u' + t, label: 'Upgrade', title: B[t].name + ' Mk ' + roman(l + 2), desc: '+25% damage and +12% fire rate for every ' + B[t].name + '.' };
       } else {
-        const p = r.pick(PERKS);
-        c = { kind: 'perk', p, key: 'p' + p.id, label: 'Perk', title: p.name, desc: p.desc };
+        const pk = r.pick(PERKS);
+        c = { kind: 'perk', p: pk, key: 'p' + pk.id, label: 'Perk', title: pk.name, desc: pk.desc };
       }
       if (used.has(c.key)) continue;
       used.add(c.key);
       cards.push(c);
     }
-    const damaged = V.list.some(b => b.hp < b.max * 0.55) || V.list.length < this.save.build.length;
+    const damaged = V.list.some(b => b.hp < b.max * 0.55) || V.list.length < p.build.length;
     if (damaged && r.next() < 0.55) cards[cards.length - 1] = { kind: 'repair', key: 'repair', label: 'Repair', title: 'Field repair', desc: 'Restore every block to full HP.' };
     return cards;
   }
 
-  /** Apply a non-block card. Block cards go through placeBlock(). */
-  applyCard(c: Card): void {
-    if (c.kind === 'up') this.lvl[c.t] = (this.lvl[c.t] || 0) + 1;
-    if (c.kind === 'perk') applyPerk(this.mods, c.p);
-    if (c.kind === 'repair') for (const b of this.V.list) b.hp = b.max;
-    this.recompile();
+  /** Apply a non-block card. Block cards go through placeBlock() (solo) or autoPlace() (co-op). */
+  applyCard(c: Card, p: Player = this.players[0]): void {
+    if (c.kind === 'up') p.lvl[c.t] = (p.lvl[c.t] || 0) + 1;
+    if (c.kind === 'perk') applyPerk(p.mods, c.p);
+    if (c.kind === 'repair') for (const b of p.V.list) b.hp = b.max;
+    if (c.kind === 'block') { this.autoPlace(c.t, p); return; }
+    this.recompile(p);
   }
 
-  placementCells(): [number, number][] { return validCells(this.V.list, this.save.gridR + 1); }
+  placementCells(p: Player = this.players[0]): [number, number][] { return validCells(p.V.list, p.gridR + 1); }
 
-  placeBlock(x: number, y: number, t: string): Block {
-    const nb = addBlock(this.V, x, y, t, 0, this.save.up, this.rng);
+  placeBlock(x: number, y: number, t: string, p: Player = this.players[0]): Block {
+    const nb = addBlock(p.V, x, y, t, 0, p.up, this.rng);
     nb.cd = 0.2;
-    this.recompile();
-    this.updateBlockPositions();
+    this.recompile(p);
+    this.updateBlockPositions(p);
     return nb;
   }
 
-  rotateBlock(b: Block): void {
-    b.r = (b.r + 1) % 4;
-    this.recompile();
+  /** Co-op: bolt the block onto a free slot without pausing; weapons face outward. */
+  autoPlace(t: string, p: Player): Block | null {
+    if (!p.alive) return null;
+    const cells = this.placementCells(p);
+    if (!cells.length) return null;
+    const [x, y] = this.rng.pick(cells);
+    const nb = this.placeBlock(x, y, t, p);
+    if (B[t].dir) nb.r = Math.abs(y) >= Math.abs(x) ? (y > 0 ? 2 : 0) : x > 0 ? 1 : 3;
+    this.recompile(p);
+    return nb;
   }
 
-  updateBlockPositions(): void {
-    const V = this.V, a = V.h + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
+  rotateBlock(b: Block, p: Player = this.players[0]): void {
+    b.r = (b.r + 1) % 4;
+    this.recompile(p);
+  }
+
+  updateBlockPositions(p: Player = this.players[0]): void {
+    const V = p.V, a = V.h + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
     for (const b of V.list) { b.wx = V.x + (b.x * ca - b.y * sa) * CS; b.wy = V.y + (b.x * sa + b.y * ca) * CS; }
   }
 

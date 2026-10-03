@@ -8,6 +8,7 @@ A workshop-themed version of Scrap Evolution: Captain Charles rides his block-bu
 - **Records:** personal bests for serious and questionable KPIs (Workaholic, The Procrastinator, Speedrun to HR, ...).
 - **Crew:** one device taps *Start a crew* and shares the 4-letter code; others join. Everyone sees a combined records board, live news, and *shift challenges*: the same map with the stock truck, scored on kills, time, level and the apex.
 - Web pages cannot scan the local Wi-Fi, so devices find each other through PeerJS's free public broker (internet needed). Data then flows peer-to-peer, directly inside the Wi-Fi when possible. To use your own broker: `npx peerjs --port 9000` and open the game with `?broker=<host>:9000`.
+- **Co-op shift:** the crew host opens a lobby, up to 3 crew-mates join with their own trucks, and everyone drives the same map. Shared XP and loot, +75% enemy pressure per extra truck, level-up cards that don't pause, respawn after 10 s. The host's device runs the world and streams snapshots (12/s); the others send their joystick and predict their own truck.
 - Offline fallback: *Record cards* (a copyable code) add a crew-mate's records to your board.
 
 ---

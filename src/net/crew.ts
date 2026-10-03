@@ -4,6 +4,7 @@
 // Star topology: the host relays every message to everyone else.
 import type { DataConnection, Peer as PeerT } from 'peerjs';
 import { isPublicProfile, type Challenge, type ChallengeEntry, type PublicProfile } from '../meta/profile';
+import { HOST_ONLY, type CoopMsg } from './coop';
 
 export type CrewMsg =
   | { k: 'hello'; p: PublicProfile }
@@ -11,7 +12,8 @@ export type CrewMsg =
   | { k: 'roster'; members: PublicProfile[]; online: string[]; host: string }
   | { k: 'news'; from: string; text: string }
   | { k: 'challenge'; c: Challenge }
-  | { k: 'entry'; cid: string; e: ChallengeEntry };
+  | { k: 'entry'; cid: string; e: ChallengeEntry }
+  | CoopMsg;
 
 export type CrewStatus = 'off' | 'connecting' | 'online' | 'error';
 
@@ -143,6 +145,8 @@ export class Crew {
         this.onChange();
         return;
       }
+      // co-op inputs are for the host only
+      if (HOST_ONLY.has(m.k)) { this.onMessage(m); return; }
       // relay everything else to the other members
       const from = this.connOwner.get(conn);
       this.relay(m, from);

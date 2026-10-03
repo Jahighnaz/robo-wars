@@ -2,7 +2,7 @@
 
 This branch is the "Charles Projects" version: block names, colours, icons, resources, sectors and perks are reskinned to workshop tools in `src/data/*.json` and `src/render/icons.ts`; internal block ids (cannon, shotgun, ...) are unchanged so saves and tests stay compatible. Captain Charles is an 8-direction billboard (`public/charles/sheet.png`, cut by `scripts/charles-frames.py`) riding the cab as a spring bobblehead (`src/render/three/charles.ts`). The save lives under its own storage keys.
 
-Social layer: `src/meta` (profile, records, trophies; pure logic, tested in `tests/meta.test.ts`) and `src/net/crew.ts` (PeerJS star topology, host relays; loaded lazily). Challenge runs are exhibition runs (`RunOptions.exhibition`) on a scratch save with the stock truck and a shared seed.
+Social layer: `src/meta` (profile, records, trophies; pure logic, tested in `tests/meta.test.ts`) and `src/net/crew.ts` (PeerJS star topology, host relays; loaded lazily). Co-op: `Run` holds `players[]` (player 0 = host/local; `run.local` picks the local one on a client mirror). The host simulates; `src/net/coop.ts` encodes Int16 snapshots and `Mirror` renders them on clients (never stepped). Challenge runs are exhibition runs (`RunOptions.exhibition`) on a scratch save with the stock truck and a shared seed.
 
 Design reference: `docs/design.md` (the master prompt is in its "Master prompt" section).
 Reference implementation: `prototype/scrap-evolution.html`. Where code and prototype disagree on numbers or behaviour, the prototype wins.

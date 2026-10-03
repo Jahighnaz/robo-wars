@@ -19,10 +19,22 @@ import { accumulate, addChallengeEntry, challengeScore, exportCard, importCard, 
 import { applyRun, fmtRecord, standings, type RecordDef } from '../meta/records';
 import { evaluate, TIER_ORDER, TROPHIES, type TrophyDef } from '../meta/trophies';
 import { cleanCode, Crew, newCrewCode, type CrewMsg } from '../net/crew';
+import { encodeSnapshot, Mirror, SNAP_HZ, startInfo, type CoopMsg, type CoopStart } from '../net/coop';
+import { PLAYER_COLORS, type PlayerSpec } from '../sim/run';
 
 type Mode = 'hub' | 'garage' | 'run' | 'cards' | 'place' | 'pause' | 'debrief' | 'menu';
 const STEP = 1 / 60;
 const PERK_ICON = 'M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z';
+
+interface CoopState {
+  role: 'host' | 'client';
+  mirror?: Mirror;
+  /** host: card offers waiting for a remote player's pick */
+  offers: Map<string, Card[]>;
+  /** cards this device is choosing from right now */
+  myCards: Card[] | null;
+  lastSnap: number; lastIn: number; waitWarned?: boolean;
+}
 
 interface GridItem { x: number; y: number; t: string; r: number; hp?: number; max?: number }
 
@@ -55,6 +67,15 @@ export class App {
   private trophyShowing = false;
   private crewWasOnline = false;
   private joinCode = '';
+  // co-op
+  private coop: CoopState | null = null;
+  private lobby: { wk: string; members: PlayerSpec[] } | null = null;
+  private invite: { wk: string; host: string; hostPid: string; members: string[]; joined: boolean } | null = null;
+  private navAt = 0;
+  private shownId = '';
+  private crewDirty = false;
+  private uiTouchAt = 0;
+  private trayKey = '';
 
   constructor(save: Save) {
     this.save = save;
@@ -72,6 +93,12 @@ export class App {
     document.addEventListener('gesturestart', e => e.preventDefault());
     document.addEventListener('pointerdown', unlockAudio, { capture: true });
     $('pauseBtn').addEventListener('click', () => this.showPause());
+    // Taps that started on the previous screen must not land on the new one.
+    this.ui.addEventListener('click', e => {
+      if (performance.now() - this.navAt < 350) { e.stopPropagation(); e.preventDefault(); }
+    }, { capture: true });
+    this.ui.addEventListener('pointerdown', () => { this.uiTouchAt = performance.now(); }, { capture: true });
+    $('trophy').addEventListener('click', e => { e.stopPropagation(); this.dismissTrophy(); });
     this.onResize();
     this.showHub();
     requestAnimationFrame(t => this.frame(t));
@@ -92,8 +119,17 @@ export class App {
     this.last = now;
     const run = this.run;
     let alpha = 1;
-    if (run && this.mode === 'run' && !run.over) {
-      const v = this.joy.read();
+    const co = this.coop;
+    if (co && co.role === 'client' && co.mirror) {
+      // co-op client: the host simulates; we predict our truck and smooth the rest
+      const live = this.mode === 'run' || this.mode === 'pause';
+      const v = this.mode === 'run' ? this.joy.read() : { x: 0, y: 0 };
+      if (live) co.mirror.advance(dt, v);
+      const now = performance.now();
+      if (live && now - co.lastIn > 50) { co.lastIn = now; this.crew.send({ k: 'in', pid: this.profile.id, x: v.x, y: v.y }); }
+      if (live && co.mirror.last && now - co.mirror.last > 4000 && !co.waitWarned) { co.waitWarned = true; this.toast('Waiting for the host…', 2500); }
+    } else if (run && (this.mode === 'run' || (co && this.mode === 'pause')) && !run.over) {
+      const v = this.mode === 'run' ? this.joy.read() : { x: 0, y: 0 };
       run.joy.x = v.x; run.joy.y = v.y;
       const scale = this.levelFlash > 0 ? 0.2 : 1;
       this.acc += dt * scale;
@@ -107,6 +143,7 @@ export class App {
       }
       if (n >= 6) this.acc = 0;
       alpha = clamp(this.acc / STEP, 0, 1);
+      if (co) this.hostCoopTick();
       if (!run.over && run.pendingLevels > 0) {
         if (this.levelFlash < 0) { this.levelFlash = 0.45; snd(880, 0.25, 'triangle', 0.04); this.toast('LEVEL UP', 700); }
         else {
@@ -115,6 +152,8 @@ export class App {
         }
       }
     }
+    if (co && this.run) this.updateTray();
+    if (this.crewDirty) this.flushCrewRender();
     if (run) {
       this.drainEvents(run);
       if (run.over && run.result && this.endTimer < 0 && this.mode !== 'debrief') this.endTimer = run.won ? 1.0 : 1.3;
@@ -123,7 +162,10 @@ export class App {
         if (this.endTimer < 0) this.finishRun(run.result!);
       }
     }
-    const V = run?.V;
+    const follow = run ? (run.me.alive || !run.coop ? run.me : run.players.find(p => p.alive) ?? run.me) : null;
+    const V = follow?.V;
+    if (run && follow !== run.me) { this.prev.x = V!.x; this.prev.y = V!.y; this.prev.h = V!.h; }
+    if (co && co.role === 'client' && run) { alpha = 1; this.prev.x = run.V.x; this.prev.y = run.V.y; this.prev.h = run.V.h; }
     const ip = V
       ? { alpha, vx: lerp(this.prev.x, V.x, alpha), vy: lerp(this.prev.y, V.y, alpha), vh: this.prev.h + angDiff(this.prev.h, V.h) * alpha }
       : { alpha: 1, vx: 0, vy: 0, vh: 0 };
@@ -144,8 +186,16 @@ export class App {
   }
 
   private drainEvents(run: Run) {
+    const co = this.coop;
     for (const ev of run.events) {
-      if (ev.k === 'toast') this.toast(ev.msg, ev.ms);
+      if (ev.k === 'toast') {
+        // co-op host: share toasts with the crew; personal ones only go to their owner
+        if (co && co.role === 'host') {
+          const mine = !ev.pid || ev.pid === run.me.pid;
+          if (!ev.pid || !mine) this.crew.send({ k: 'ev', msg: ev.msg, ms: ev.ms, pid: ev.pid });
+          if (mine) this.toast(ev.msg, ev.ms);
+        } else this.toast(ev.msg, ev.ms);
+      }
       else if (ev.k === 'snd') snd(ev.f, ev.dur, ev.type, ev.vol);
       else if (ev.k === 'shot') shotSnd(ev.f);
     }
@@ -178,6 +228,12 @@ export class App {
     cb.classList.toggle('low', cf < 0.3);
     const lootEl = $('hLoot');
     lootEl.replaceChildren(...RES_KEYS.filter(r => G.loot[r] > 0).map(r => el('div', { class: 'lootchip' }, gem(RES[r].color), String(G.loot[r]))));
+    const team = $('hTeam');
+    if (G.coop) {
+      team.classList.remove('off');
+      team.replaceChildren(...G.players.filter(p => !p.gone).map(p => el('span', { class: 'mate' + (p.alive ? '' : ' down'), style: `--pc:${p.color}` },
+        el('i', null), p.name + (p.alive ? ' · ' + p.kills : ' · back in ' + Math.max(1, Math.ceil(p.respawnT)) + 's'))));
+    } else team.classList.add('off');
     const bb = $('bossbar');
     if (G.bossE && !G.bossE.dead) {
       bb.classList.add('on');
@@ -188,7 +244,9 @@ export class App {
 
   // ================================================================ modes
   private setMode(m: Mode) {
+    this.screen = '';
     this.mode = m;
+    if (m !== 'run' && m !== 'pause') { $('cardtray').classList.add('off'); this.trayKey = ''; }
     const inRun = m === 'run';
     $('hud').classList.toggle('off', !(m === 'run' || m === 'pause'));
     if (inRun) { this.ui.className = 'hidden'; this.ui.replaceChildren(); }
@@ -197,6 +255,8 @@ export class App {
   }
 
   private show(cls: string, ...nodes: Node[]) {
+    const id = this.mode + '/' + this.screen;
+    if (id !== this.shownId) { this.shownId = id; this.navAt = performance.now(); }
     this.ui.className = cls;
     this.ui.replaceChildren(...nodes);
     this.ui.scrollTop = 0;
@@ -211,6 +271,7 @@ export class App {
 
   private startRun(wk: string, challenge: Challenge | null = null) {
     unlockAudio();
+    this.coop = null;
     this.activeChallenge = challenge;
     const opts = { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh };
     if (challenge) {
@@ -315,7 +376,7 @@ export class App {
       el('div', { class: 'nav' },
         el('button', { class: 'btn', onclick: () => { uiSnd(); this.gSel = null; this.gTool = null; this.showGarage(); } }, el('span', { html: iconSvg('cab', 'currentColor', 18) }), 'Garage'),
         el('button', { class: 'btn ghost', onclick: () => this.showHelp() }, 'How to play'),
-        el('button', { class: 'btn', onclick: () => this.showCrew() }, 'Crew & records'),
+        el('button', { class: 'btn', onclick: () => this.showCrew() }, 'Crew, co-op & records'),
         el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies ' + this.trophyCount() + '/' + TROPHIES.length),
         el('button', { class: 'btn ghost', onclick: () => this.showSettings() }, 'Settings & backup')),
       el('h2', null, 'Choose a sector'),
@@ -601,26 +662,40 @@ export class App {
     this.setMode('pause');
     const toggleBtn = (label: string, on: boolean, flip: () => void) =>
       el('button', { class: 'btn sm ghost', onclick: () => { flip(); this.store(); this.setMode('run'); this.showPause(); } }, label + ': ' + (on ? 'on' : 'off'));
+    const co = this.coop;
     this.show('dim', el('div', { class: 'wrap mid', style: 'max-width:760px' },
       el('div', { class: 'center' },
-        el('div', { class: 'kicker' }, run.Wd.name),
-        el('div', { class: 'lvl-title', style: 'color:var(--cyan);text-shadow:0 0 22px rgba(0,240,255,.6)' }, 'PAUSED'),
+        el('div', { class: 'kicker' }, run.Wd.name + (co ? ' · co-op shift' : '')),
+        el('div', { class: 'lvl-title', style: 'color:var(--cyan);text-shadow:0 0 22px rgba(0,240,255,.6)' }, co ? 'BREAK' : 'PAUSED'),
+        co ? el('p', { class: 'sub', style: 'margin:8px auto 0' }, 'The shift keeps running for your crew. Your truck stands still while you are on break.') : null,
         el('p', { class: 'sub', style: 'margin:8px auto 18px' }, fmtTime(run.t) + ' survived · level ' + run.level + ' · ' + run.kills + ' kills')),
       el('div', { class: 'row', style: 'justify-content:center' },
         el('button', { class: 'btn primary big', onclick: () => this.resume() }, 'Resume'),
-        el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, run.exhibition ? 'Abandon challenge' : 'Abandon (keep half)')),
+        co ? el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); this.leaveCoop(); } }, co.role === 'host' ? 'End shift for everyone' : 'Leave the shift')
+          : el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, run.exhibition ? 'Abandon challenge' : 'Abandon (keep half)')),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
         toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
         toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
         toggleBtn('Shake', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
-      el('h2', null, 'Damage so far'),
-      damageReport(run.dmgBy, run.killsSrc, run.peak, run.t)));
+      co && co.role === 'client' ? null : el('h2', null, 'Damage so far'),
+      co && co.role === 'client' ? null : damageReport(run.dmgBy, run.killsSrc, run.peak, run.t)));
   }
 
   // ================================================================ debrief
   private finishRun(r: RunResult) {
     const p = this.profile;
     const ch = this.activeChallenge;
+    const co = this.coop;
+    if (co) {
+      if (co.role === 'host' && this.run) this.crew.send({ k: 'coop_end', results: this.run.results });
+      if (co.role === 'client') {
+        // the host's sector evolved; we bank our share of the loot
+        for (const k in r.gained) this.save.res[k as ResKey] += r.gained[k as ResKey] || 0;
+        this.save.runs++;
+        if (r.won) this.save.wins++;
+      }
+      this.coop = null;
+    }
     accumulate(p, r);
     const improved = applyRun(p, r, !!ch);
     let score = 0;
@@ -691,16 +766,28 @@ export class App {
     return got;
   }
 
+  private trophyTimer = 0;
+  /** Trophy pop-up: bottom of the screen, tap to dismiss, several unlocks at once share one pop-up. */
   private pumpTrophies() {
     if (this.trophyShowing || !this.trophyQueue.length) return;
-    const t = this.trophyQueue.shift()!;
+    const batch = this.trophyQueue.splice(0, this.trophyQueue.length > 2 ? this.trophyQueue.length : 1);
+    const t = batch.reduce((best, x) => (TIER_ORDER.indexOf(x.tier) < TIER_ORDER.indexOf(best.tier) ? x : best), batch[0]);
     this.trophyShowing = true;
     const box = $('trophy');
     box.className = 'trophy-toast on tier-' + t.tier;
-    box.replaceChildren(el('div', { class: 'tt-cup', html: CUP }), el('div', null, el('div', { class: 'tt-kind' }, (t.hidden ? 'Easter egg · ' : '') + t.tier + ' trophy unlocked'), el('div', { class: 'tt-title' }, t.title)));
+    box.replaceChildren(el('div', { class: 'tt-cup', html: CUP }), el('div', null,
+      el('div', { class: 'tt-kind' }, batch.length > 1 ? batch.length + ' trophies unlocked' : (t.hidden ? 'Easter egg · ' : '') + t.tier + ' trophy unlocked'),
+      el('div', { class: 'tt-title' }, batch.map(x => x.title).join(' · '))));
     snd(t.tier === 'platinum' ? 1046 : t.tier === 'gold' ? 880 : 740, 0.35, 'triangle', 0.045);
     setTimeout(() => snd(1175, 0.3, 'triangle', 0.035), 140);
-    setTimeout(() => { box.classList.remove('on'); setTimeout(() => { this.trophyShowing = false; this.pumpTrophies(); }, 350); }, 3200);
+    clearTimeout(this.trophyTimer);
+    this.trophyTimer = window.setTimeout(() => this.dismissTrophy(), batch.length > 1 ? 4200 : 3000);
+  }
+
+  private dismissTrophy() {
+    clearTimeout(this.trophyTimer);
+    $('trophy').classList.remove('on');
+    setTimeout(() => { this.trophyShowing = false; this.pumpTrophies(); }, 350);
   }
 
   private egg(kind: 'slash' | 'tap_charles') {
@@ -768,7 +855,8 @@ export class App {
     }
     this.crewWasOnline = online;
     this.rememberMates();
-    if (this.mode === 'menu' && this.screen === 'crew') this.showCrew(true);
+    this.coopOnCrewChange();
+    this.requestCrewRender();
   }
 
   private rememberMates() {
@@ -787,6 +875,7 @@ export class App {
   }
 
   private onCrewMsg(m: CrewMsg) {
+    if (this.onCoopMsg(m)) return;
     const me = this.profile;
     if (m.k === 'hello' && this.crew.isHost) {
       // bring the newcomer up to speed on recent challenges
@@ -806,7 +895,255 @@ export class App {
     }
     this.rememberMates();
     this.store();
-    if (this.mode === 'menu' && this.screen === 'crew') this.showCrew(true);
+    this.requestCrewRender();
+  }
+
+  // ================================================================ co-op
+  /** Re-render the crew screen soon, but never under a finger or while typing. */
+  private requestCrewRender() { if (this.mode === 'menu' && this.screen === 'crew') this.crewDirty = true; }
+  private flushCrewRender() {
+    if (!(this.mode === 'menu' && this.screen === 'crew')) { this.crewDirty = false; return; }
+    const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+    if (typing || performance.now() - this.uiTouchAt < 700) return;
+    this.crewDirty = false;
+    this.showCrew(true);
+  }
+
+  private mySpec(): PlayerSpec {
+    const s = this.save;
+    return { pid: this.profile.id, name: this.profile.name, build: s.build.map(b => ({ ...b })), up: { ...s.up }, gridR: s.gridR };
+  }
+
+  private broadcastLobby() {
+    const L = this.lobby;
+    this.crew.send({ k: 'coop_lobby', open: !!L, wk: L?.wk ?? 'rust', host: this.profile.name, hostPid: this.profile.id, members: L ? [this.profile.name, ...L.members.map(m => m.name)] : [] });
+  }
+
+  private openLobby(wk: string) {
+    this.lobby = { wk, members: this.lobby?.members ?? [] };
+    this.broadcastLobby();
+    uiSnd(660);
+    this.toast('Co-op lobby open. Crew-mates can join from their Crew screen.', 2600);
+    this.showCrew(true);
+  }
+
+  private closeLobby() {
+    this.lobby = null;
+    this.broadcastLobby();
+    this.showCrew(true);
+  }
+
+  private startCoopHost() {
+    const L = this.lobby;
+    if (!L) return;
+    const crewSpecs = L.members.filter(m => this.crew.online.has(m.pid)).slice(0, 3).map((m, i) => ({ ...m, color: PLAYER_COLORS[i + 1] }));
+    unlockAudio();
+    this.activeChallenge = null;
+    this.run = new Run(this.save, L.wk, { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh,
+      pid: this.profile.id, name: this.profile.name, crew: crewSpecs });
+    this.coop = { role: 'host', offers: new Map(), myCards: null, lastSnap: 0, lastIn: 0 };
+    this.crew.send({ k: 'coop_start', s: startInfo(this.run) });
+    this.lobby = null;
+    this.beginRun(L.wk);
+    this.toast('CO-OP SHIFT · ' + WORLDS[L.wk].name.toUpperCase() + ' · ' + this.run.players.length + ' TRUCKS', 2600);
+  }
+
+  private startCoopClient(st: CoopStart) {
+    unlockAudio();
+    this.activeChallenge = null;
+    const mirror = new Mirror(st, this.profile.id, { w: this.renderer.vw, h: this.renderer.vh });
+    this.run = mirror.run;
+    this.coop = { role: 'client', mirror, offers: new Map(), myCards: null, lastSnap: 0, lastIn: 0 };
+    this.invite = null;
+    this.beginRun(st.wk);
+    this.toast('CO-OP SHIFT · ' + WORLDS[st.wk].name.toUpperCase() + ' · ' + mirror.run.players.length + ' TRUCKS', 2600);
+  }
+
+  /** Shared start of any run: camera, HUD, mode. */
+  private beginRun(wk: string) {
+    const run = this.run!;
+    this.renderer.configureSpawn(run);
+    this.snapshot(run);
+    this.acc = 0; this.levelFlash = -1; this.endTimer = -1; this.trayKey = '';
+    this.setMode('run');
+    this.updateHUD();
+    void wk;
+    if (!this.save.seenHelp) { this.save.seenHelp = true; this.store(); }
+  }
+
+  /** Host, every frame: card offers for remote players and snapshots for everyone. */
+  private hostCoopTick() {
+    const co = this.coop!, run = this.run!;
+    for (const p of run.players) {
+      if (p.idx === 0 || p.gone || p.pendingCards <= 0 || co.offers.has(p.pid)) continue;
+      const cards = run.makeCards(p);
+      co.offers.set(p.pid, cards);
+      this.crew.send({ k: 'cards', pid: p.pid, cards });
+    }
+    if (!co.myCards && run.me.pendingCards > 0) co.myCards = run.makeCards(run.me);
+    const now = performance.now();
+    if (now - co.lastSnap > 1000 / SNAP_HZ) { co.lastSnap = now; this.crew.send({ k: 'snap', buf: encodeSnapshot(run) }); }
+  }
+
+  /** Co-op level-up tray: cards appear at the bottom and the game keeps running. */
+  private updateTray() {
+    const co = this.coop, tray = $('cardtray');
+    const cards = co?.myCards;
+    const show = !!cards && (this.mode === 'run' || this.mode === 'pause') && !this.run?.over;
+    if (!show) { if (this.trayKey) { tray.classList.add('off'); this.trayKey = ''; } return; }
+    const key = cards!.map(c => c.key).join();
+    if (key === this.trayKey) return;
+    this.trayKey = key;
+    tray.classList.remove('off');
+    const icon = (c: Card) => (c.kind === 'block' || c.kind === 'up') ? iconSvg(c.t, B[c.t].color, 26) : c.kind === 'repair' ? iconSvg('repair', '#5dff8a', 26)
+      : `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ff2bd6" stroke-width="2" stroke-linejoin="round"><path d="${PERK_ICON}"/></svg>`;
+    tray.replaceChildren(
+      el('div', { class: 'tray-head' }, 'LEVEL ' + this.run!.level + ' · PICK ONE · THE SHIFT KEEPS RUNNING'),
+      el('div', { class: 'tray-cards' }, cards!.map((c, i) => el('button', { class: 'tcard k-' + c.kind, onclick: (e: Event) => { e.stopPropagation(); this.pickCoopCard(i); } },
+        el('span', { class: 'ti', html: icon(c) }),
+        el('span', { class: 'tt' }, el('b', null, c.title), el('small', null, c.kind === 'block' ? 'Bolted on automatically' : c.desc))))));
+    snd(740, 0.18, 'triangle', 0.04);
+  }
+
+  private pickCoopCard(i: number) {
+    const co = this.coop, run = this.run;
+    if (!co || !run || !co.myCards) return;
+    const c = co.myCards[i];
+    uiSnd(620);
+    if (co.role === 'host') {
+      run.applyCard(c, run.me);
+      run.me.pendingCards = Math.max(0, run.me.pendingCards - 1);
+    } else {
+      this.crew.send({ k: 'pick', pid: this.profile.id, i });
+    }
+    co.myCards = null;
+    this.trayKey = '';
+    $('cardtray').classList.add('off');
+  }
+
+  private leaveCoop() {
+    const co = this.coop, run = this.run;
+    if (!co || !run) return;
+    if (co.role === 'host') {
+      run.end(false); // the normal end-of-run flow tells everyone
+      this.setMode('run');
+      this.ui.className = 'hidden';
+    } else {
+      this.crew.send({ k: 'coop_quit', pid: this.profile.id });
+      this.coop = null;
+      this.run = null;
+      this.toast('You left the co-op shift.', 1800);
+      this.showHub();
+    }
+  }
+
+  private coopOnCrewChange() {
+    const co = this.coop, run = this.run;
+    if (this.lobby) {
+      const before = this.lobby.members.length;
+      this.lobby.members = this.lobby.members.filter(m => this.crew.online.has(m.pid));
+      if (this.lobby.members.length !== before) this.broadcastLobby();
+    }
+    if (!co || !run) { if (this.crew.status !== 'online') { this.lobby = null; this.invite = null; } return; }
+    if (co.role === 'host') {
+      for (const p of run.players) if (p.idx > 0 && !p.gone && !this.crew.online.has(p.pid)) { run.removePlayer(p.pid); co.offers.delete(p.pid); }
+    } else if (this.crew.status !== 'online' && !run.over) {
+      this.coop = null;
+      this.run = null;
+      this.toast('Lost the connection to the co-op host.', 3000);
+      this.showHub();
+    }
+  }
+
+  /** Returns true when the message was a co-op message (handled here, no save write). */
+  private onCoopMsg(m: CrewMsg): boolean {
+    const me = this.profile.id;
+    const co = this.coop;
+    const cm = m as CoopMsg;
+    switch (cm.k) {
+      case 'snap': if (co?.role === 'client' && co.mirror) { co.mirror.apply(cm.buf); co.waitWarned = false; } return true;
+      case 'in': { const p = co?.role === 'host' ? this.run?.playerById(cm.pid) : null; if (p) { p.joy.x = cm.x; p.joy.y = cm.y; } return true; }
+      case 'ev': if (co?.role === 'client' && (!cm.pid || cm.pid === me)) this.toast(cm.msg, cm.ms); return true;
+      case 'cards': if (co?.role === 'client' && cm.pid === me) { co.myCards = cm.cards; this.trayKey = ''; } return true;
+      case 'pick': {
+        if (co?.role !== 'host' || !this.run) return true;
+        const p = this.run.playerById(cm.pid), offer = co.offers.get(cm.pid);
+        if (p && offer && offer[cm.i]) { this.run.applyCard(offer[cm.i], p); p.pendingCards = Math.max(0, p.pendingCards - 1); }
+        co.offers.delete(cm.pid);
+        return true;
+      }
+      case 'coop_quit': if (co?.role === 'host' && this.run) this.run.removePlayer(cm.pid); return true;
+      case 'coop_end': {
+        if (co?.role !== 'client' || !this.run) return true;
+        const r = cm.results[me];
+        this.run.over = true;
+        if (r) setTimeout(() => { if (this.coop?.role === 'client') this.finishRun(r); }, 1000);
+        else { this.coop = null; this.showHub(); }
+        return true;
+      }
+      case 'coop_lobby': {
+        if (cm.hostPid === me) return true;
+        const was = this.invite;
+        if (!cm.open) this.invite = null;
+        else {
+          this.invite = { wk: cm.wk, host: cm.host, hostPid: cm.hostPid, members: cm.members, joined: !!was?.joined && cm.members.includes(this.profile.name) };
+          if (!was && !co) this.toast(cm.host + ' opened a co-op shift in the ' + (WORLDS[cm.wk]?.name || 'sector') + '. Join from Crew & records.', 3600);
+        }
+        this.requestCrewRender();
+        return true;
+      }
+      case 'coop_join': {
+        if (!this.crew.isHost || !this.lobby || co) return true;
+        const spec = cm.spec;
+        this.lobby.members = this.lobby.members.filter(x => x.pid !== spec.pid).concat(spec).slice(0, 3);
+        this.broadcastLobby();
+        this.toast(spec.name + ' joined the co-op lobby', 1800);
+        this.requestCrewRender();
+        return true;
+      }
+      case 'coop_unjoin': {
+        if (this.lobby) { this.lobby.members = this.lobby.members.filter(x => x.pid !== cm.pid); this.broadcastLobby(); this.requestCrewRender(); }
+        return true;
+      }
+      case 'coop_start': {
+        if (co || !cm.s.specs.some(sp => sp.pid === me)) { if (!co) { this.invite = null; this.requestCrewRender(); } return true; }
+        if (this.mode === 'run' && this.run) return true; // already busy in a solo run
+        this.startCoopClient(cm.s);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private coopPanel(online: boolean) {
+    const crew = this.crew, L = this.lobby, inv = this.invite;
+    const intro = el('p', { class: 'sub', style: 'margin:6px 0 10px' }, 'Drive the same map together. Shared XP and loot, more enemies per truck, level-up cards that do not pause the game. A wrecked truck is back after 10 seconds; the shift ends when the whole crew is down or the apex falls.');
+    let body: (Node | null)[] = [];
+    if (!online) body = [el('p', { class: 'hint', style: 'text-align:left' }, 'Start or join a crew first.')];
+    else if (crew.isHost) {
+      if (!L) body = [el('div', { class: 'row' }, WORLD_KEYS.map(k => el('button', { class: 'btn sm', style: `--cut:9px;color:${WORLDS[k].theme.accent}`, onclick: () => this.openLobby(k) }, 'Open lobby: ' + WORLDS[k].name)))];
+      else {
+        const joined = L.members.filter(m => crew.online.has(m.pid));
+        body = [
+          el('div', { class: 'members' },
+            el('div', { class: 'member on' }, el('span', { class: 'dot', style: `background:${PLAYER_COLORS[0]}` }), this.profile.name + ' (you, host)'),
+            joined.map((m, i) => el('div', { class: 'member on' }, el('span', { class: 'dot', style: `background:${PLAYER_COLORS[i + 1]}` }), m.name))),
+          el('p', { class: 'hint', style: 'text-align:left' }, joined.length ? `${joined.length + 1} trucks in the ${WORLDS[L.wk].name}. Up to 4.` : 'Waiting for crew-mates to join…'),
+          el('div', { class: 'row' },
+            el('button', { class: 'btn primary', disabled: !joined.length, onclick: () => this.startCoopHost() }, 'Start the shift ▸'),
+            el('button', { class: 'btn sm ghost', onclick: () => this.closeLobby() }, 'Close lobby')),
+        ];
+      }
+    } else if (inv) {
+      body = [
+        el('p', null, el('b', null, inv.host), ' opened a co-op shift in the ', el('b', null, WORLDS[inv.wk]?.name || inv.wk), '. In the lobby: ' + inv.members.join(', ') + '.'),
+        inv.joined
+          ? el('div', { class: 'row' }, el('span', { class: 'hint' }, 'You are in. Waiting for ' + inv.host + ' to start…'),
+            el('button', { class: 'btn sm ghost', onclick: () => { inv.joined = false; this.crew.send({ k: 'coop_unjoin', pid: this.profile.id }); this.showCrew(true); } }, 'Leave lobby'))
+          : el('button', { class: 'btn primary', onclick: () => { inv.joined = true; this.crew.send({ k: 'coop_join', spec: this.mySpec() }); uiSnd(660); this.showCrew(true); } }, 'Join with my truck ▸'),
+      ];
+    } else body = [el('p', { class: 'hint', style: 'text-align:left' }, 'No open lobby. The crew host (' + (crew.members.get(crew.hostId)?.name || 'host') + ') can open one.')];
+    return el('div', { class: 'panel', style: '--acc:var(--cyan);margin-bottom:16px' }, el('h3', null, 'Co-op shift'), intro, ...body);
   }
 
   private startChallenge(wk: string) {
@@ -927,6 +1264,7 @@ export class App {
         el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies'),
         el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back')),
       el('div', { class: 'social-grid', style: 'margin-top:16px' }, you, crewPanel),
+      this.coopPanel(online),
       chal,
       records,
       cards));

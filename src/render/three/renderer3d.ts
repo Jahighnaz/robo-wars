@@ -74,7 +74,7 @@ export class Renderer3D {
   private pBlocks: Pool; private pBarrels: Pool; private pEnemy: Pool; private pDeposit: Pool;
   private pXp: Pool; private pRes: Pool; private pShot: Pool; private pEnemyShot: Pool; private pBeam: Pool;
   private pSpark: Pool; private pDebris: Pool; private pGlow: Pool; private pRing: Pool; private pSaw: Pool;
-  private charles: Bobblehead;
+  private charles: Bobblehead[] = [];
 
   constructor(cv: HTMLCanvasElement, overlay: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
@@ -115,8 +115,6 @@ export class Renderer3D {
     this.pGlow = new Pool(flat, decalMaterial(radial, 1.0), 2600);
     this.pRing = new Pool(flat, decalMaterial(ring, 1.6), 300);
     this.pSaw = new Pool(flat, decalMaterial(sawTexture(), 1.5), 500);
-    this.charles = new Bobblehead();
-    this.scene.add(this.charles.sprite);
     for (const p of [this.pSaw, this.pGlow, this.pRing, this.pBlocks, this.pBarrels, this.pEnemy, this.pDeposit, this.pXp, this.pRes,
       this.pShot, this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris]) this.scene.add(p.mesh);
     this.pGlow.mesh.renderOrder = 1; this.pRing.mesh.renderOrder = 2;
@@ -139,6 +137,12 @@ export class Renderer3D {
     this.skyline = new Pool(box, this.skyMat, 900);
     this.scene.add(this.skyline.mesh);
     this.buildSkyline();
+  }
+
+  /** one Charles per truck: everybody gets a captain */
+  private bobble(i: number): Bobblehead {
+    while (this.charles.length <= i) { const b = new Bobblehead(); this.charles.push(b); this.scene.add(b.sprite); }
+    return this.charles[i];
   }
 
   get glowOn(): boolean { return this._bloom; }
@@ -242,7 +246,7 @@ export class Renderer3D {
     this.blockMat.uniforms.uGlow.value = 1.7 * glowK;
     this.neon.uniforms.uGlow.value = 1.8 * glowK;
 
-    const a = ip.alpha, V = run.V;
+    const a = ip.alpha;
     const vx = ip.vx, vy = ip.vy;
     const shk = opts.shake ? run.shake : 0;
     this.placeCamera(vx, vy, shk ? (Math.random() * 2 - 1) * shk : 0, shk ? (Math.random() * 2 - 1) * shk : 0);
@@ -281,31 +285,38 @@ export class Renderer3D {
       }
     }
 
-    // ---- player vehicle
-    this.charles.hide();
-    const phi = ip.vh + Math.PI / 2, cp = Math.cos(phi), sp = Math.sin(phi);
-    const ug = V.s.radius * 4.2;
-    this.pGlow.push(vx, 0.8, vy, 0, ug, 1, ug, col('#00c8ff'), 0.3);
-    for (const b of V.list) {
-      const d = B[b.t];
-      const lx = b.x * CS, ly = b.y * CS;
-      const wx = vx + lx * cp - ly * sp, wz = vy + lx * sp + ly * cp;
-      const r = d.dir ? b.r : 0;
-      const yaw = -(phi + (r * Math.PI) / 2);
-      const h = blockHeight(b.t);
-      const hpf = clamp(b.hp / b.max, 0, 1);
-      const flick = hpf < 0.3 && Math.sin(this.time * 18) > 0;
-      const c = b.fl > 0 ? WHITE : flick ? col('#ff2e63') : col(d.color);
-      const k = b.fl > 0 ? 0.75 : 0.45 + 0.55 * hpf;
-      this.pBlocks.push(wx, 0, wz, yaw, CS * 0.9, h * (0.75 + 0.25 * hpf), CS * 0.9, c, k, ICON_TYPES.indexOf(b.t));
-      const det = weaponDetail(b.t);
-      if (det) {
-        const ox = wx - det.fwd * Math.sin(yaw), oz = wz - det.fwd * Math.cos(yaw);
-        this.pBarrels.push(ox, h, oz, yaw, det.w, det.h, det.l, c, k);
+    // ---- trucks (the local one uses the interpolated camera pose)
+    for (const bh of this.charles) bh.hide();
+    for (const pl of run.players) {
+      if (!pl.alive || !pl.V.list.length) continue;
+      const PV = pl.V, local = pl.idx === run.local;
+      const px0 = local ? vx : PV.x, py0 = local ? vy : PV.y, ph = local ? ip.vh : PV.h;
+      const phi = ph + Math.PI / 2, cp = Math.cos(phi), sp = Math.sin(phi);
+      const ug = PV.s.radius * 4.2;
+      this.pGlow.push(px0, 0.8, py0, 0, ug, 1, ug, col(run.coop ? pl.color : '#00c8ff'), local ? 0.3 : 0.4);
+      if (run.coop) this.pRing.push(px0, 1.1, py0, this.time * 0.7, PV.s.radius * 2.6, 1, PV.s.radius * 2.6, col(pl.color), 0.45);
+      const bh = this.bobble(pl.idx);
+      for (const b of PV.list) {
+        const d = B[b.t];
+        const lx = b.x * CS, ly = b.y * CS;
+        const wx = px0 + lx * cp - ly * sp, wz = py0 + lx * sp + ly * cp;
+        const r = d.dir ? b.r : 0;
+        const yaw = -(phi + (r * Math.PI) / 2);
+        const h = blockHeight(b.t);
+        const hpf = clamp(b.hp / b.max, 0, 1);
+        const flick = hpf < 0.3 && Math.sin(this.time * 18) > 0;
+        const c = b.fl > 0 ? WHITE : flick ? col('#ff2e63') : col(d.color);
+        const k = b.fl > 0 ? 0.75 : 0.45 + 0.55 * hpf;
+        this.pBlocks.push(wx, 0, wz, yaw, CS * 0.9, h * (0.75 + 0.25 * hpf), CS * 0.9, c, k, ICON_TYPES.indexOf(b.t));
+        const det = weaponDetail(b.t);
+        if (det) {
+          const ox = wx - det.fwd * Math.sin(yaw), oz = wz - det.fwd * Math.cos(yaw);
+          this.pBarrels.push(ox, h, oz, yaw, det.w, det.h, det.l, c, k);
+        }
+        if (d.hover) this.pGlow.push(wx, 0.9, wz, 0, 34, 1, 34, col('#2ef2c8'), 0.7);
+        if (b.t === 'shotgun') this.pSaw.push(wx, h + 3.5, wz, this.time * 9, 15, 1, 15, c, k);
+        if (b.t === 'cab') bh.update(wx, h, wz, ph, PV, dt, this.time);
       }
-      if (d.hover) this.pGlow.push(wx, 0.9, wz, 0, 34, 1, 34, col('#2ef2c8'), 0.7);
-      if (b.t === 'shotgun') this.pSaw.push(wx, h + 3.5, wz, this.time * 9, 15, 1, 15, c, k);
-      if (b.t === 'cab') this.charles.update(wx, h, wz, ip.vh, V, dt, this.time);
     }
 
     // ---- enemies
@@ -405,7 +416,7 @@ export class Renderer3D {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     // firing arcs at the start of a run (projected onto the ground)
-    const arcA = opts.arcs ? clamp((9 - run.t) / 3, 0, 1) * 0.9 : 0;
+    const arcA = opts.arcs && run.me.alive ? clamp((9 - run.t) / 3, 0, 1) * 0.9 : 0;
     if (arcA > 0) {
       const phi = vh + Math.PI / 2, cp = Math.cos(phi), sp = Math.sin(phi);
       for (const b of run.V.s.weapons) {
@@ -480,6 +491,32 @@ export class Renderer3D {
       g.restore();
     };
     for (const e of run.E) if (e.bossLv) arrow(e.x, e.y, '#ff2e63', e.bossLv === 2 ? 20 : 15);
+
+    // co-op: name tags over teammates, arrows to the ones off screen, and your respawn timer
+    if (run.coop) {
+      g.textAlign = 'center';
+      for (const pl of run.players) {
+        if (pl.idx === run.local || pl.gone) continue;
+        if (!pl.alive) continue;
+        const [sx, sy, on] = this.toScreen(pl.V.x, pl.V.y, 80);
+        if (on && sx > 0 && sx < VW && sy > 0 && sy < VH) {
+          g.font = '700 13px Orbitron, sans-serif';
+          const w = g.measureText(pl.name).width + 16;
+          g.fillStyle = 'rgba(5,6,11,0.75)'; g.fillRect(sx - w / 2, sy - 30, w, 20);
+          g.strokeStyle = pl.color; g.lineWidth = 1.5; g.strokeRect(sx - w / 2, sy - 30, w, 20);
+          g.fillStyle = pl.color; g.fillText(pl.name, sx, sy - 15);
+        } else arrow(pl.V.x, pl.V.y, pl.color, 14);
+      }
+      const me = run.me;
+      if (!me.alive && !me.gone && !run.over) {
+        g.font = '900 30px Orbitron, sans-serif';
+        g.fillStyle = '#ff2e63'; g.shadowColor = '#ff2e63'; g.shadowBlur = 18;
+        g.fillText('TRUCK WRECKED', VW / 2, VH * 0.42);
+        g.shadowBlur = 0;
+        g.font = '700 18px Orbitron, sans-serif'; g.fillStyle = '#e6f1ff';
+        g.fillText('Back on shift in ' + Math.max(1, Math.ceil(me.respawnT)) + ' s · watching your crew', VW / 2, VH * 0.42 + 34);
+      }
+    }
     for (const dp of run.DEP) if (dp.cache) arrow(dp.x, dp.y, RES[dp.res].color, 13);
 
     // joystick / first-run coach
