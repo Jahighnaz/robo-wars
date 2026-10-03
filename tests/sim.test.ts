@@ -5,8 +5,10 @@ import { playRun } from './bot';
 
 describe('headless run', () => {
   it('plays a full Rustlands run deterministically with a seed', () => {
-    const a = playRun(new Run(defaultSave(), 'rust', { seed: 1 }));
-    const b = playRun(new Run(defaultSave(), 'rust', { seed: 1 }));
+    const a = playRun(new Run(defaultSave(), 'rust', { seed: 1 }), 200);
+    const b = playRun(new Run(defaultSave(), 'rust', { seed: 1 }), 200);
+    if (!a.over) a.end(false);
+    if (!b.over) b.end(false);
     expect(a.over).toBe(true);
     expect(a.result).not.toBeNull();
     expect(a.kills).toBeGreaterThan(30);
@@ -40,10 +42,10 @@ describe('co-op run', () => {
     const duo = new Run(defaultSave(), 'rust', { seed: 9, crew: crew(2) });
     expect(duo.coop).toBe(true);
     expect(duo.maxEnemies).toBeGreaterThan(solo.maxEnemies);
-    let spawnedSolo = 0, spawnedDuo = 0;
-    for (let i = 0; i < 60 * 40; i++) { solo.update(1 / 60); duo.update(1 / 60); }
-    spawnedSolo = solo.W.species.reduce((a, s) => a + s.st.n, 0);
-    spawnedDuo = duo.W.species.reduce((a, s) => a + s.st.n, 0);
+    const spawned = (r: Run) => (r as unknown as { nextEnemyId: number }).nextEnemyId - 1;
+    for (let i = 0; i < 60 * 25; i++) { solo.update(1 / 60); duo.update(1 / 60); }
+    const spawnedSolo = spawned(solo), spawnedDuo = spawned(duo);
+    expect(duo.over).toBe(false);
     expect(spawnedDuo).toBeGreaterThan(spawnedSolo * 1.4);
     expect(duo.pendingLevels).toBe(0); // co-op never pauses for cards
     expect(duo.players.every(p => p.pendingCards === duo.level - 1)).toBe(true);
@@ -68,5 +70,43 @@ describe('co-op run', () => {
     const p = run.players[1], n = p.V.list.length;
     run.applyCard({ kind: 'block', key: 'bcannon', t: 'cannon', label: '', title: '', desc: '' }, p);
     expect(p.V.list.length).toBe(n + 1);
+  });
+});
+
+describe('tiers, point defence and enemy weapons', () => {
+  it('tier II/III blocks unlock from the previous tier\'s workshop level', async () => {
+    const { isUnlocked, B } = await import('../src/data');
+    expect(isUnlocked('wheel2', {})).toBe(false);
+    expect(isUnlocked('wheel2', { wheel: 3 })).toBe(true);
+    expect(isUnlocked('wheel3', { wheel: 9 })).toBe(false);
+    expect(isUnlocked('wheel3', { wheel2: 3 })).toBe(true);
+    expect(B.wheel3.thrust!).toBeGreaterThan(B.wheel2.thrust!);
+    expect(B.wheel2.thrust!).toBeGreaterThan(B.wheel.thrust!);
+  });
+
+  it('a zapper deletes enemy projectiles in range', () => {
+    const save = defaultSave();
+    save.build.push({ x: 1, y: -1, t: 'zapper', r: 0 });
+    const run = new Run(save, 'rust', { seed: 2 });
+    run.update(1 / 60);
+    const V = run.V;
+    for (let i = 0; i < 4; i++) run.EBL.push({ x: V.x + 90, y: V.y + i * 5, vx: 0, vy: 0, dmg: 5, life: 5, sp: null, kind: 'bolt' });
+    for (let i = 0; i < 60 * 2; i++) run.update(1 / 60);
+    expect(run.stats.zapped).toBeGreaterThanOrEqual(4);
+  });
+
+  it('enemies fire bombs, rail shots, rockets and spray', () => {
+    const run = new Run(defaultSave(), 'rust', { seed: 3 });
+    const kinds = new Set<string>();
+    const sp = (cells: [number, number, string][]) => ({ id: 999, name: 't', cells, pref: 0, spd: 1, pop: 1, born: 0, st: { n: 0, dmg: 0, life: 0 } });
+    return import('../src/enemies/species').then(m => {
+      for (const blk of ['lobber', 'sniper', 'rocket', 'spray']) {
+        const s = sp([[0, 0, 'core'], [0, -1, blk]]) as unknown as Parameters<typeof run.spawnEnemy>[0];
+        m.compileSpecies(s);
+        run.spawnEnemy(s, run.V.x + 250, run.V.y, 0);
+      }
+      for (let i = 0; i < 60 * 6 && !run.over; i++) { run.update(1 / 60); for (const b of run.EBL) kinds.add(b.kind); }
+      expect([...kinds].sort()).toEqual(expect.arrayContaining(['lob', 'rocket', 'snipe', 'spray']));
+    });
   });
 });

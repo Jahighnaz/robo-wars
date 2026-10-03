@@ -1,3 +1,4 @@
+import { B } from '../data';
 // Block glyphs as SVG path data (24×24, stroked). Shared by the canvas sprites
 // (via Path2D) and the DOM UI (inline SVG), so the garage and the run match.
 export const ICONS: Record<string, string> = {
@@ -16,16 +17,20 @@ export const ICONS: Record<string, string> = {
   battery: 'M7 5H17V21H7Z M10 2H14V5H10Z M10 13L12.5 9V12.5H14L11.5 17V13.5H10',
   magnet: 'M6 4V12A6 6 0 0 0 18 12V4H14V12A2 2 0 0 1 10 12V4Z M6 7.5H10 M14 7.5H18',
   repair: 'M4 6H14V10H4Z M14 7H20V9H14 M6 10V18H12V15 M9 18V21',
+  zapper: 'M12 9.5a2.5 2.5 0 1 0 0.01 0Z M12 3C16 3 16.5 7 12.5 9.5 M21 12C21 16 17 16.5 14.5 12.5 M12 21C8 21 7.5 17 11.5 14.5 M3 12C3 8 7 7.5 9.5 11.5',
 };
+
+/** tiers share their family's glyph */
+const glyph = (t: string) => ICONS[t] || ICONS[B[t]?.fam ?? ''] || ICONS.cab;
 
 const paths = new Map<string, Path2D>();
 export function iconPath(t: string): Path2D {
   let p = paths.get(t);
-  if (!p) { p = new Path2D(ICONS[t] || ICONS.cab); paths.set(t, p); }
+  if (!p) { p = new Path2D(glyph(t)); paths.set(t, p); }
   return p;
 }
 
 export function iconSvg(t: string, color: string, size = 24, rot = 0): string {
   const tr = rot ? ` style="transform:rotate(${rot}deg)"` : '';
-  return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24"${tr} fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="${ICONS[t] || ICONS.cab}"/></svg>`;
+  return `<svg class="ico" width="${size}" height="${size}" viewBox="0 0 24 24"${tr} fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="${glyph(t)}"/></svg>`;
 }

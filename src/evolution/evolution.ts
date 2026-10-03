@@ -38,7 +38,7 @@ export function counterWeights(wk: string, killsBy: Partial<Record<DType, number
   let tot = 0;
   for (const t of DTYPES) tot += killsBy[t] || 0;
   const sh = (t: DType) => (tot ? (killsBy[t] || 0) / tot : 0);
-  const w: Record<string, number> = { spike: 3, plate: 2, gun: 1.6, boomer: 1, thruster: 2, fireplate: 0.4, insul: 0.4, reactive: 0.4 };
+  const w: Record<string, number> = { spike: 3, plate: 2, gun: 1.6, boomer: 1, thruster: 2, fireplate: 0.4, insul: 0.4, reactive: 0.4, lobber: 0.7, sniper: 0.5, rocket: 0.5, spray: 0.7 };
   w.reactive += 4 * sh('kinetic') + 3 * sh('explosive');
   w.fireplate += 5 * sh('fire');
   w.insul += 3 * (sh('electric') + sh('energy'));

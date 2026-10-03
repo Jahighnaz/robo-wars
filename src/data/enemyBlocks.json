@@ -1,11 +1,112 @@
 {
-  "core":      { "label": "core", "hp": 20, "mass": 1, "color": "#ff1f4b", "mat": "scrap" },
-  "spike":     { "label": "spike", "hp": 8, "mass": 0.5, "melee": 6, "color": "#ffd1e0", "mat": "scrap" },
-  "plate":     { "label": "plate", "hp": 30, "mass": 1.5, "color": "#8792a8", "mat": "scrap" },
-  "gun":       { "label": "gun", "hp": 10, "mass": 0.8, "gun": 6, "color": "#ffd23f", "mat": "copper" },
-  "boomer":    { "label": "bomb", "hp": 6, "mass": 0.6, "boom": 24, "color": "#ff7a1a", "mat": "pyro" },
-  "thruster":  { "label": "thruster", "hp": 6, "mass": 0.4, "thrust": 1, "color": "#3db8ff", "mat": "copper" },
-  "fireplate": { "label": "heat plating", "hp": 22, "mass": 1.2, "res": { "fire": 0.4 }, "color": "#ff4d2e", "mat": "pyro" },
-  "insul":     { "label": "insulation", "hp": 22, "mass": 1.2, "res": { "electric": 0.25, "energy": 0.2 }, "color": "#5ab0ff", "mat": "crystal" },
-  "reactive":  { "label": "reactive plating", "hp": 24, "mass": 1.4, "res": { "explosive": 0.4, "kinetic": 0.15 }, "color": "#9be564", "mat": "resin" }
+ "core": {
+  "label": "core",
+  "hp": 20,
+  "mass": 1,
+  "color": "#ff1f4b",
+  "mat": "scrap"
+ },
+ "spike": {
+  "label": "spike",
+  "hp": 8,
+  "mass": 0.5,
+  "melee": 6,
+  "color": "#ffd1e0",
+  "mat": "scrap"
+ },
+ "plate": {
+  "label": "plate",
+  "hp": 30,
+  "mass": 1.5,
+  "color": "#8792a8",
+  "mat": "scrap"
+ },
+ "gun": {
+  "label": "gun",
+  "hp": 10,
+  "mass": 0.8,
+  "gun": 6,
+  "color": "#ffd23f",
+  "mat": "copper"
+ },
+ "boomer": {
+  "label": "bomb",
+  "hp": 6,
+  "mass": 0.6,
+  "boom": 24,
+  "color": "#ff7a1a",
+  "mat": "pyro"
+ },
+ "thruster": {
+  "label": "thruster",
+  "hp": 6,
+  "mass": 0.4,
+  "thrust": 1,
+  "color": "#3db8ff",
+  "mat": "copper"
+ },
+ "fireplate": {
+  "label": "heat plating",
+  "hp": 22,
+  "mass": 1.2,
+  "res": {
+   "fire": 0.4
+  },
+  "color": "#ff4d2e",
+  "mat": "pyro"
+ },
+ "insul": {
+  "label": "insulation",
+  "hp": 22,
+  "mass": 1.2,
+  "res": {
+   "electric": 0.25,
+   "energy": 0.2
+  },
+  "color": "#5ab0ff",
+  "mat": "crystal"
+ },
+ "reactive": {
+  "label": "reactive plating",
+  "hp": 24,
+  "mass": 1.4,
+  "res": {
+   "explosive": 0.4,
+   "kinetic": 0.15
+  },
+  "color": "#9be564",
+  "mat": "resin"
+ },
+ "lobber": {
+  "label": "bomb lobber",
+  "hp": 14,
+  "mass": 1.0,
+  "lob": 8,
+  "color": "#ffb03a",
+  "mat": "pyro"
+ },
+ "sniper": {
+  "label": "rail spike",
+  "hp": 10,
+  "mass": 0.8,
+  "snipe": 10,
+  "color": "#ff5c8a",
+  "mat": "crystal"
+ },
+ "rocket": {
+  "label": "rocket pod",
+  "hp": 12,
+  "mass": 0.9,
+  "rocket": 11,
+  "color": "#ff3d3d",
+  "mat": "copper"
+ },
+ "spray": {
+  "label": "scrap sprayer",
+  "hp": 12,
+  "mass": 0.9,
+  "spray": 4,
+  "color": "#f5e05a",
+  "mat": "scrap"
+ }
 }

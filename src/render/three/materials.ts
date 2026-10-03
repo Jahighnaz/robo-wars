@@ -1,6 +1,6 @@
 // Shaders and procedural textures for the neon 3D look.
 import * as THREE from 'three';
-import { ICONS } from '../icons';
+import { iconPath } from '../icons';
 
 /**
  * Neon block material: dark body, bright glowing edges on every face, optional
@@ -211,7 +211,7 @@ export function iconAtlas(types: string[]): THREE.CanvasTexture {
       g.translate(i * S + S * 0.2, S * 0.2);
       g.scale((S * 0.6) / 24, (S * 0.6) / 24);
       g.strokeStyle = '#fff'; g.lineWidth = 2.3; g.lineJoin = 'round'; g.lineCap = 'round';
-      g.stroke(new Path2D(ICONS[t] || ICONS.cab));
+      g.stroke(iconPath(t));
       g.restore();
     });
   });

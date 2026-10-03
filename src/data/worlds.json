@@ -129,6 +129,50 @@
       "thruster"
      ]
     ]
+   },
+   {
+    "name": "Mortar Mite",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "lobber"
+     ],
+     [
+      0,
+      1,
+      "plate"
+     ]
+    ],
+    "pref": 260,
+    "pop": 0.45
+   },
+   {
+    "name": "Scatter Hog",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "spray"
+     ],
+     [
+      0,
+      1,
+      "thruster"
+     ]
+    ],
+    "pref": 150,
+    "pop": 0.45
    }
   ]
  },
@@ -272,6 +316,50 @@
       "thruster"
      ]
     ]
+   },
+   {
+    "name": "Rail Stalker",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "sniper"
+     ],
+     [
+      0,
+      1,
+      "thruster"
+     ]
+    ],
+    "pref": 300,
+    "pop": 0.45
+   },
+   {
+    "name": "Frost Lobber",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "lobber"
+     ],
+     [
+      1,
+      0,
+      "insul"
+     ]
+    ],
+    "pref": 260,
+    "pop": 0.45
    }
   ]
  },
@@ -415,6 +503,50 @@
       "thruster"
      ]
     ]
+   },
+   {
+    "name": "Rocket Roach",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "rocket"
+     ],
+     [
+      0,
+      1,
+      "thruster"
+     ]
+    ],
+    "pref": 280,
+    "pop": 0.45
+   },
+   {
+    "name": "Slag Sprayer",
+    "cells": [
+     [
+      0,
+      0,
+      "core"
+     ],
+     [
+      0,
+      -1,
+      "spray"
+     ],
+     [
+      0,
+      1,
+      "fireplate"
+     ]
+    ],
+    "pref": 150,
+    "pop": 0.45
    }
   ]
  }

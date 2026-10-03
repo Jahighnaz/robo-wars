@@ -1,5 +1,5 @@
 // Screens, HUD and the main loop. Owns the save and the current run.
-import { B, DNAME, DTYPES, PLACEABLE, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, type ResKey } from '../data';
+import { B, CABS, DNAME, DTYPES, fam, isCab, isUnlocked, PLACEABLE, tierMark, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, type ResKey } from '../data';
 import { angDiff, clamp, fmtTime, lerp, roman } from '../core/math';
 import { describeSpecies } from '../enemies/species';
 import { Run, type Card, type RunResult } from '../sim/run';
@@ -8,6 +8,7 @@ import { Preview3D } from '../render/three/preview3d';
 import { iconSvg } from '../render/icons';
 import { Joystick } from '../input/joystick';
 import { setMuted, shotSnd, snd, uiSnd, unlockAudio } from '../audio/audio';
+import { music, type Mood } from '../audio/music';
 import { defaultSave, exportCode, importCode, type Save, type Settings } from '../persistence/save';
 import { persist } from '../persistence/storage';
 import {
@@ -76,6 +77,7 @@ export class App {
   private crewDirty = false;
   private uiTouchAt = 0;
   private trayKey = '';
+  private musicState = '';
 
   constructor(save: Save) {
     this.save = save;
@@ -91,11 +93,11 @@ export class App {
       if (e.key === 'Escape' || e.key === 'p') { if (this.mode === 'run') this.showPause(); else if (this.mode === 'pause') this.resume(); }
     });
     document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('pointerdown', unlockAudio, { capture: true });
+    document.addEventListener('pointerdown', () => { unlockAudio(); music.setEnabled(this.settings.music); }, { capture: true });
     $('pauseBtn').addEventListener('click', () => this.showPause());
     // Taps that started on the previous screen must not land on the new one.
     this.ui.addEventListener('click', e => {
-      if (performance.now() - this.navAt < 350) { e.stopPropagation(); e.preventDefault(); }
+      if (performance.now() - this.navAt < 250) { e.stopPropagation(); e.preventDefault(); }
     }, { capture: true });
     this.ui.addEventListener('pointerdown', () => { this.uiTouchAt = performance.now(); }, { capture: true });
     $('trophy').addEventListener('click', e => { e.stopPropagation(); this.dismissTrophy(); });
@@ -153,6 +155,7 @@ export class App {
       }
     }
     if (co && this.run) this.updateTray();
+    this.updateMusic();
     if (this.crewDirty) this.flushCrewRender();
     if (run) {
       this.drainEvents(run);
@@ -178,6 +181,19 @@ export class App {
     this.hudT += dt;
     if (this.hudT > 0.1) { this.hudT = 0; if (run && (this.mode === 'run' || this.mode === 'pause')) this.updateHUD(); }
     requestAnimationFrame(t => this.frame(t));
+  }
+
+  /** Menu theme in menus, the run track in a shift, the boss variant when a boss is out. */
+  private updateMusic() {
+    const run = this.run;
+    const inRun = !!run && ['run', 'pause', 'cards', 'place'].includes(this.mode) && !run.over;
+    const mood: Mood = !inRun ? 'menu' : run!.t >= T.runLength - 2 || run!.E.some(e => e.bossLv > 0) ? 'boss' : 'run';
+    const ducked = inRun && this.mode !== 'run';
+    const key = mood + ducked;
+    if (key === this.musicState) return;
+    this.musicState = key;
+    music.setMood(mood);
+    music.setDucked(ducked);
   }
 
   private snapshot(run: Run) {
@@ -221,7 +237,7 @@ export class App {
     $('xpbar').style.width = (clamp(G.xp / G.xpNeed, 0, 1) * 100).toFixed(1) + '%';
     $('hLvl').textContent = 'LV ' + G.level;
     $('hKills').textContent = G.kills + ' KILLS';
-    const cab = G.V.list.find(b => b.t === 'cab');
+    const cab = G.V.list.find(b => isCab(b.t));
     const cf = cab ? clamp(cab.hp / cab.max, 0, 1) : 0;
     const cb = $('cabbar');
     cb.style.width = (cf * 100).toFixed(1) + '%';
@@ -318,13 +334,14 @@ export class App {
       if (b) {
         const d = B[b.t];
         cell = el('button', {
-          class: 'cell blk' + (b.t === 'cab' ? ' cab' : '') + (opts.fresh === b ? ' fresh' : '') + (opts.sel === b ? ' sel' : ''),
+          class: 'cell blk' + (isCab(b.t) ? ' cab' : '') + (opts.fresh === b ? ' fresh' : '') + (opts.sel === b ? ' sel' : ''),
           style: `--bc:${d.color}`,
           'aria-label': d.name + (d.dir ? ', facing ' + ['forward', 'right', 'back', 'left'][b.r] : ''),
           onclick: () => opts.onTap(x, y, b),
           html: iconSvg(b.t, d.color, 24, d.dir ? b.r * 90 : 0),
         });
         if (d.dir) cell.append(el('span', { class: 'rot' }, '⟳'));
+        if (tierMark(b.t)) cell.append(el('span', { class: 'tier' }, tierMark(b.t)));
         if (b.max && b.hp !== undefined && b.hp < b.max) cell.append(el('span', { class: 'hpb' }, el('i', { style: 'width:' + Math.max(0, (b.hp / b.max) * 100) + '%' })));
       } else {
         const ok = valid.has(x + ',' + y);
@@ -421,6 +438,7 @@ export class App {
       el('h1', null, 'Settings'),
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
         toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
+        toggle('Music', '"Shop Floor Fever": 8-bit arcade techno, generated live.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
         toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
         toggle('Firing arcs', 'Show where each tool fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
         toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
@@ -475,7 +493,7 @@ export class App {
 
   private storeSelected() {
     const s = this.save, b = this.gSel;
-    if (!b || b.t === 'cab') return;
+    if (!b || isCab(b.t)) return;
     const removed = removeFromBuild(s.build, b);
     s.inv[b.t] = (s.inv[b.t] || 0) + 1;
     for (const o of removed) s.inv[o.t] = (s.inv[o.t] || 0) + 1;
@@ -504,7 +522,7 @@ export class App {
       invKeys.length ? invKeys.map(t => el('button', {
         class: 'tool' + (this.gTool === t ? ' sel' : ''),
         onclick: () => { this.gTool = this.gTool === t ? null : t; this.gSel = null; uiSnd(); this.showGarage(true); },
-      }, this.blockIcon(t, 26), B[t].name, el('span', { class: 'cnt' }, '×' + s.inv[t]))) : null);
+      }, this.blockIcon(t, 26), B[t].name + (tierMark(t) ? ' ' + tierMark(t) : ''), el('span', { class: 'cnt' }, '×' + s.inv[t]))) : null);
 
     let hint: Node;
     if (this.gTool) hint = el('span', null, 'Tap a glowing slot to place the ', el('b', null, B[this.gTool].name), '.');
@@ -516,7 +534,7 @@ export class App {
       this.blockIcon(sel.t, 34, B[sel.t].dir ? sel.r * 90 : 0),
       el('div', { class: 'nm' }, B[sel.t].name + (this.up(sel.t) ? ' Mk ' + roman(this.up(sel.t) + 1) : ''), el('div', null, B[sel.t].desc)),
       B[sel.t].dir ? el('button', { class: 'btn sm', onclick: () => { sel.r = (sel.r + 1) % 4; this.store(); this.showGarage(true); } }, '⟳ Turn') : null,
-      sel.t !== 'cab' ? el('button', { class: 'btn sm ghost', onclick: () => this.storeSelected() }, 'Store') : null) : null;
+      !isCab(sel.t) ? el('button', { class: 'btn sm ghost', onclick: () => this.storeSelected() }, 'Store') : null) : null;
 
     const meter = (label: string, val: string, frac: number, bad = false) =>
       el('div', { class: 'meter' + (bad ? ' bad' : '') }, el('div', { class: 'ml' }, label, el('b', null, val)), el('div', { class: 'mt' }, el('div', { class: 'mf', style: `width:${clamp(frac, 0.02, 1) * 100}%` })));
@@ -540,7 +558,9 @@ export class App {
 
     // right column
     const exp = T.gridExpansions.find(g => g.r === s.gridR + 1);
-    const owned = ['cab'].concat(PLACEABLE.filter(t => s.build.some(b => b.t === t) || (s.inv[t] || 0) > 0));
+    const cabT = s.build.find(b => b.x === 0 && b.y === 0)?.t || 'cab';
+    const owned = [cabT].concat(PLACEABLE.filter(t => s.build.some(b => b.t === t) || (s.inv[t] || 0) > 0));
+    const nextCab = CABS.find(c => B[c].unlock?.from === cabT);
     const workshop = el('div', { class: 'craft' },
       el('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Permanent. Applies to every block of that type, in every run.'),
       owned.map(t => {
@@ -551,22 +571,44 @@ export class App {
             el('div', { class: 'd' }, max ? 'Fully upgraded.' : upEffect(t) + '.'), cost ? this.costChips(cost) : null),
           max ? null : el('button', { class: 'btn sm', disabled: !this.canAfford(cost!), onclick: () => {
             this.pay(cost!); s.up[t] = L + 1; this.store(); snd(660, 0.15, 'triangle', 0.035);
-            this.toast(B[t].name + ' upgraded to Mk ' + roman(L + 2), 1400); this.showGarage(true);
+            this.toast(B[t].name + ' upgraded to Mk ' + roman(L + 2), 1400); this.award('garage'); this.showGarage(true);
           } }, 'Upgrade'));
-      }));
+      }),
+      // cab chassis: swap the centre block for the next tier
+      nextCab ? (() => {
+        const ok = isUnlocked(nextCab, s.up), cost = B[nextCab].cost || {};
+        return el('div', { class: 'crow' + (ok ? '' : ' locked'), style: 'border-color:var(--acid)' },
+          el('span', { class: 'sw', style: `--bc:${B[nextCab].color}`, html: iconSvg(nextCab, B[nextCab].color, 24) }),
+          el('div', { class: 'nm' }, 'New chassis: ' + B[nextCab].name, el('span', { class: 'tierb' }, 'TIER ' + tierMark(nextCab)),
+            el('div', { class: 'd' }, ok ? B[nextCab].desc + ` ${B[nextCab].hp} HP, +${B[nextCab].power} power.` : `Unlocks at ${B[B[nextCab].unlock!.from].name} Mk ${roman(B[nextCab].unlock!.mk + 1)}.`),
+            ok ? this.costChips(cost) : null),
+          el('button', { class: 'btn sm', disabled: !ok || !this.canAfford(cost), onclick: () => {
+            this.pay(cost);
+            const c = s.build.find(b => b.x === 0 && b.y === 0);
+            if (c) c.t = nextCab;
+            this.store(); snd(520, 0.3, 'triangle', 0.05); this.award('garage');
+            this.toast('Charles moved into the ' + B[nextCab].name + '!', 2200); this.showGarage(true);
+          } }, ok ? 'Swap cab' : 'Locked'));
+      })() : null);
     const craft = el('div', { class: 'craft' },
       el('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Fabricated blocks go to storage. Place them on the grid on the left.'),
       exp ? el('div', { class: 'crow', style: 'border-color:var(--acid)' },
         el('span', { class: 'sw', style: '--bc:#f5ff3b;font-family:var(--display);color:var(--acid)' }, (exp.r * 2 + 1) + '²'),
         el('div', { class: 'nm' }, 'Bigger build grid', el('div', { class: 'd' }, `Expand to ${exp.r * 2 + 1}×${exp.r * 2 + 1}. In a run you can always build one ring further.`), this.costChips(exp.cost)),
         el('button', { class: 'btn sm', disabled: !this.canAfford(exp.cost), onclick: () => { this.pay(exp.cost); s.gridR = exp.r; this.store(); snd(700, 0.2, 'triangle', 0.04); this.showGarage(true); } }, 'Expand')) : null,
-      PLACEABLE.map(t => el('div', { class: 'crow' },
+      PLACEABLE.map(t => {
+        const ok = isUnlocked(t, s.up), u = B[t].unlock;
+        // locked tiers only show once their family is in reach (tier II always, tier III once tier II is unlocked)
+        if (!ok && u && !isUnlocked(u.from, s.up)) return null;
+        return el('div', { class: 'crow' + (ok ? '' : ' locked') + (B[t].tier > 1 ? ' tiered' : '') },
         el('span', { class: 'sw', style: `--bc:${B[t].color}`, html: iconSvg(t, B[t].color, 24) }),
-        el('div', { class: 'nm' }, B[t].name, s.inv[t] ? el('span', { class: 'stored' }, s.inv[t] + ' STORED') : null, el('div', { class: 'd' }, B[t].desc), this.costChips(B[t].cost || {})),
-        el('button', { class: 'btn sm', disabled: !this.canAfford(B[t].cost || {}), onclick: () => {
+        el('div', { class: 'nm' }, B[t].name, B[t].tier > 1 ? el('span', { class: 'tierb' }, 'TIER ' + tierMark(t)) : null, s.inv[t] ? el('span', { class: 'stored' }, s.inv[t] + ' STORED') : null,
+          el('div', { class: 'd' }, ok ? B[t].desc : `Unlocks at ${B[u!.from].name} Mk ${roman(u!.mk + 1)} (workshop upgrades).`), ok ? this.costChips(B[t].cost || {}) : null),
+        el('button', { class: 'btn sm', disabled: !ok || !this.canAfford(B[t].cost || {}), onclick: () => {
           this.pay(B[t].cost || {}); s.inv[t] = (s.inv[t] || 0) + 1; this.gTool = t; this.gSel = null; this.store(); snd(520, 0.1, 'triangle', 0.03); this.award('craft:' + t);
           this.toast(B[t].name + ' fabricated. Tap a glowing slot to place it.', 1800); this.showGarage(true);
-        } }, 'Fabricate'))));
+        } }, ok ? 'Fabricate' : 'Locked'));
+      }));
 
     const tab = (id: 'workshop' | 'craft', label: string) => el('button', { class: 'tab' + (this.gTab === id ? ' on' : ''), onclick: () => { this.gTab = id; uiSnd(); this.showGarage(true); } }, label);
 
@@ -675,6 +717,7 @@ export class App {
           : el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, run.exhibition ? 'Abandon challenge' : 'Abandon (keep half)')),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
         toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
+        toggleBtn('Music', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
         toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
         toggleBtn('Shake', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
       co && co.role === 'client' ? null : el('h2', null, 'Damage so far'),
@@ -1291,9 +1334,11 @@ const CHARLES_SAYS = [
 // ================================================================ helpers
 export function upCost(t: string, L: number): Cost {
   const base = B[t].cost || { scrap: 50, copper: 20 };
+  const tier = B[t].tier || 1;
   const c: Cost = {};
-  for (const r in base) c[r as ResKey] = Math.ceil((base[r as ResKey] || 0) * 1.5 * (L + 1));
-  if (L >= 2) c.shard = L - 1;
+  for (const r in base) if (r !== 'shard') c[r as ResKey] = Math.ceil((base[r as ResKey] || 0) * (tier > 1 ? 0.6 : 1.5) * (L + 1) * (1 + Math.max(0, L - 5) * 0.25));
+  const sh = (L >= 2 ? L - 1 : 0) + (tier - 1) * Math.ceil((L + 1) / 3);
+  if (sh > 0) c.shard = sh;
   return c;
 }
 
@@ -1302,7 +1347,8 @@ export function upEffect(t: string): string {
   const parts = ['+20% HP'];
   if (d.w) parts.push('+15% damage', '+5% fire rate');
   if (d.thrust) parts.push('+8% thrust');
-  if (t === 'battery' || t === 'cab') parts.push('+1 power');
+  if (fam(t) === 'battery' || fam(t) === 'cab') parts.push('+1 power');
+  if (d.pd) parts.push('+8% zap rate');
   if (d.magnet) parts.push('+25 pickup range');
   if (d.regen || d.repair) parts.push('+25% healing');
   return parts.join(', ') + ' per level';

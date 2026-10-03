@@ -61,6 +61,12 @@ const block = z.object({
   desc: z.string(),
   cost: cost.optional(),
   w: weapon.optional(),
+  /** family (tier 1 id) and tier 1-3; tiers unlock from the previous tier's workshop level */
+  fam: z.string(),
+  tier: z.number().int().min(1).max(3),
+  unlock: z.object({ from: z.string(), mk: z.number().int() }).optional(),
+  /** point defence: destroys enemy projectiles in range */
+  pd: z.object({ range: z.number(), rate: z.number() }).optional(),
 });
 export type BlockDef = z.infer<typeof block>;
 
@@ -71,6 +77,10 @@ const enemyBlock = z.object({
   melee: z.number().optional(),
   gun: z.number().optional(),
   boom: z.number().optional(),
+  lob: z.number().optional(),
+  snipe: z.number().optional(),
+  rocket: z.number().optional(),
+  spray: z.number().optional(),
   thrust: z.number().optional(),
   res: z.partialRecord(dtype, z.number().min(0).max(0.4)).optional(),
   color: z.string(),
@@ -88,7 +98,7 @@ const world = z.object({
   hazardText: z.string(),
   theme: z.object({ bg: z.string(), grid: z.string(), accent: z.string(), haz: z.string(), hazEdge: z.string() }),
   res: z.partialRecord(resKey, z.number().min(0)),
-  seeds: z.array(z.object({ name: z.string(), cells: z.array(cell).min(1), pref: z.number().optional() })).min(4),
+  seeds: z.array(z.object({ name: z.string(), cells: z.array(cell).min(1), pref: z.number().optional(), pop: z.number().optional() })).min(4),
 });
 export type WorldDef = z.infer<typeof world>;
 
@@ -117,7 +127,14 @@ export const PERKS = z.array(perk).parse(perksJson);
 export const T = tuning.parse(tuningJson);
 
 export const RES_KEYS = Object.keys(RES) as ResKey[];
-export const PLACEABLE = Object.keys(B).filter(k => k !== 'cab');
+export const PLACEABLE = Object.keys(B).filter(k => B[k].cat !== 'cab');
+export const CABS = Object.keys(B).filter(k => B[k].cat === 'cab');
+/** tier-1 id of a block's family (cannon2 → cannon) */
+export const fam = (t: string) => B[t]?.fam ?? t;
+export const isCab = (t: string) => B[t]?.cat === 'cab';
+/** a tier unlocks once the previous tier reaches the given workshop level */
+export const isUnlocked = (t: string, up: Record<string, number>) => { const u = B[t]?.unlock; return !u || (up[u.from] || 0) >= u.mk; };
+export const tierMark = (t: string) => (B[t]?.tier > 1 ? ['', '', 'II', 'III'][B[t].tier] : '');
 export const WORLD_KEYS = Object.keys(WORLDS);
 
 // Cross-file integrity checks: world seeds may only use known enemy blocks.
@@ -125,3 +142,4 @@ for (const k of WORLD_KEYS) for (const s of WORLDS[k].seeds) for (const c of s.c
   if (!EB[c[2]]) throw new Error(`World ${k}: species ${s.name} uses unknown block ${c[2]}`);
 }
 if (!B.cab) throw new Error('blocks.json must define a cab');
+for (const k in B) { const u = B[k].unlock; if (u && !B[u.from]) throw new Error(`Block ${k} unlocks from unknown ${u.from}`); if (!B[B[k].fam]) throw new Error(`Block ${k} has unknown family ${B[k].fam}`); }

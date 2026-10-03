@@ -7,7 +7,52 @@
   "mass": 3,
   "power": 6,
   "color": "#f5ff3b",
-  "desc": "Captain Charles rides up here. If the cab breaks, the run ends."
+  "desc": "Captain Charles rides up here. If the cab breaks, the run ends.",
+  "fam": "cab",
+  "tier": 1
+ },
+ "cab2": {
+  "name": "Pickup cab",
+  "ab": "PU",
+  "cat": "cab",
+  "hp": 300,
+  "mass": 3.6,
+  "power": 9,
+  "color": "#f8ff7a",
+  "desc": "A proper pickup. Tougher, and more power for tools.",
+  "fam": "cab",
+  "tier": 2,
+  "cost": {
+   "scrap": 260,
+   "copper": 60,
+   "shard": 3
+  },
+  "unlock": {
+   "from": "cab",
+   "mk": 3
+  }
+ },
+ "cab3": {
+  "name": "Big rig cab",
+  "ab": "BR",
+  "cat": "cab",
+  "hp": 480,
+  "mass": 4.2,
+  "power": 13,
+  "color": "#fdffc4",
+  "desc": "An eighteen-wheeler cab. Charles needs a ladder now.",
+  "fam": "cab",
+  "tier": 3,
+  "cost": {
+   "scrap": 600,
+   "copper": 160,
+   "pyro": 60,
+   "shard": 8
+  },
+  "unlock": {
+   "from": "cab2",
+   "mk": 3
+  }
  },
  "wheel": {
   "name": "Caster wheel",
@@ -21,6 +66,53 @@
   "desc": "Light and quick. Slow in oil sludge.",
   "cost": {
    "scrap": 20
+  },
+  "fam": "wheel",
+  "tier": 1
+ },
+ "wheel2": {
+  "name": "Off-road wheel",
+  "ab": "OW",
+  "cat": "prop",
+  "hp": 86,
+  "mass": 1,
+  "thrust": 9.45,
+  "turn": 3.888,
+  "color": "#c3d4e8",
+  "desc": "Chunky tread that bites into sludge better than casters.",
+  "cost": {
+   "scrap": 90,
+   "copper": 20,
+   "shard": 1
+  },
+  "fam": "wheel",
+  "tier": 2,
+  "unlock": {
+   "from": "wheel",
+   "mk": 3
+  }
+ },
+ "wheel3": {
+  "name": "Racing slick",
+  "ab": "RS",
+  "cat": "prop",
+  "hp": 117,
+  "mass": 0.9,
+  "thrust": 12.6,
+  "turn": 4.32,
+  "color": "#f2f7ff",
+  "desc": "Featherweight magnesium rim. Very fast, very fragile ego.",
+  "cost": {
+   "scrap": 220,
+   "copper": 60,
+   "crystal": 20,
+   "shard": 3
+  },
+  "fam": "wheel",
+  "tier": 3,
+  "unlock": {
+   "from": "wheel2",
+   "mk": 3
   }
  },
  "track": {
@@ -37,6 +129,55 @@
   "cost": {
    "scrap": 30,
    "copper": 10
+  },
+  "fam": "track",
+  "tier": 1
+ },
+ "track2": {
+  "name": "Heavy tread",
+  "ab": "HT",
+  "cat": "prop",
+  "hp": 153,
+  "mass": 2,
+  "thrust": 11.7,
+  "turn": 4.83,
+  "mud": true,
+  "color": "#9fb6d6",
+  "desc": "Wide steel tread: more grip, more push.",
+  "cost": {
+   "scrap": 140,
+   "copper": 40,
+   "shard": 1
+  },
+  "fam": "track",
+  "tier": 2,
+  "unlock": {
+   "from": "track",
+   "mk": 3
+  }
+ },
+ "track3": {
+  "name": "Tank tread",
+  "ab": "TT",
+  "cat": "prop",
+  "hp": 238,
+  "mass": 2.4,
+  "thrust": 14.85,
+  "turn": 4.6,
+  "mud": true,
+  "color": "#c5d6f0",
+  "desc": "Military surplus. Shrugs off sludge, ice and opinions.",
+  "cost": {
+   "scrap": 320,
+   "copper": 90,
+   "pyro": 30,
+   "shard": 3
+  },
+  "fam": "track",
+  "tier": 3,
+  "unlock": {
+   "from": "track2",
+   "mk": 3
   }
  },
  "hover": {
@@ -54,6 +195,57 @@
   "cost": {
    "crystal": 15,
    "copper": 10
+  },
+  "fam": "hover",
+  "tier": 1
+ },
+ "hover2": {
+  "name": "Mag-lev pad",
+  "ab": "ML",
+  "cat": "prop",
+  "hp": 60,
+  "mass": 0.6,
+  "thrust": 8.7,
+  "turn": 4.0,
+  "hover": true,
+  "power": -1,
+  "color": "#5dffe0",
+  "desc": "Magnetic levitation with real push. Floats over slag.",
+  "cost": {
+   "crystal": 60,
+   "copper": 40,
+   "shard": 1
+  },
+  "fam": "hover",
+  "tier": 2,
+  "unlock": {
+   "from": "hover",
+   "mk": 3
+  }
+ },
+ "hover3": {
+  "name": "Jet pad",
+  "ab": "JP",
+  "cat": "prop",
+  "hp": 90,
+  "mass": 0.6,
+  "thrust": 12.0,
+  "turn": 4.0,
+  "hover": true,
+  "power": -2,
+  "color": "#b2fff1",
+  "desc": "Small jet turbine. Absurdly fast, floats over slag.",
+  "cost": {
+   "crystal": 150,
+   "copper": 90,
+   "pyro": 40,
+   "shard": 3
+  },
+  "fam": "hover",
+  "tier": 3,
+  "unlock": {
+   "from": "hover2",
+   "mk": 3
   }
  },
  "armor": {
@@ -66,6 +258,47 @@
   "desc": "Absorbs 40% of hits on neighbouring blocks.",
   "cost": {
    "scrap": 25
+  },
+  "fam": "armor",
+  "tier": 1
+ },
+ "armor2": {
+  "name": "Reinforced plate",
+  "ab": "RP",
+  "cat": "armor",
+  "hp": 222,
+  "mass": 2.2,
+  "color": "#e8f0ff",
+  "desc": "Double-layer steel. Shields neighbours from 40% of hits.",
+  "cost": {
+   "scrap": 110,
+   "shard": 1
+  },
+  "fam": "armor",
+  "tier": 2,
+  "unlock": {
+   "from": "armor",
+   "mk": 3
+  }
+ },
+ "armor3": {
+  "name": "Titanium plate",
+  "ab": "Ti",
+  "cat": "armor",
+  "hp": 360,
+  "mass": 2.3,
+  "color": "#ffffff",
+  "desc": "Aerospace offcuts. Ridiculously tough for its weight.",
+  "cost": {
+   "scrap": 260,
+   "crystal": 40,
+   "shard": 3
+  },
+  "fam": "armor",
+  "tier": 3,
+  "unlock": {
+   "from": "armor2",
+   "mk": 3
   }
  },
  "regen": {
@@ -80,6 +313,50 @@
   "cost": {
    "resin": 20,
    "scrap": 10
+  },
+  "fam": "regen",
+  "tier": 1
+ },
+ "regen2": {
+  "name": "Gaffer tape",
+  "ab": "GT",
+  "cat": "armor",
+  "hp": 140,
+  "mass": 1,
+  "regen": 7,
+  "color": "#c6d2e0",
+  "desc": "Better tape, better patches: regrows 7 HP/s.",
+  "cost": {
+   "resin": 70,
+   "scrap": 40,
+   "shard": 1
+  },
+  "fam": "regen",
+  "tier": 2,
+  "unlock": {
+   "from": "regen",
+   "mk": 3
+  }
+ },
+ "regen3": {
+  "name": "Self-healing foam",
+  "ab": "SF",
+  "cat": "armor",
+  "hp": 208,
+  "mass": 1,
+  "regen": 11,
+  "color": "#e9f5ff",
+  "desc": "Expanding foam that fills every hole: regrows 11 HP/s.",
+  "cost": {
+   "resin": 160,
+   "crystal": 30,
+   "shard": 3
+  },
+  "fam": "regen",
+  "tier": 3,
+  "unlock": {
+   "from": "regen2",
+   "mk": 3
   }
  },
  "cannon": {
@@ -103,6 +380,72 @@
   },
   "cost": {
    "scrap": 30
+  },
+  "fam": "cannon",
+  "tier": 1
+ },
+ "cannon2": {
+  "name": "Framing nailer",
+  "ab": "FN",
+  "cat": "weapon",
+  "hp": 80,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffc94a",
+  "desc": "Heavier nails, faster cycle. Nailers side by side fire faster.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 15.95,
+   "rate": 4.95,
+   "range": 300,
+   "arc": 130,
+   "speed": 680,
+   "spread": 0.06
+  },
+  "cost": {
+   "scrap": 120,
+   "copper": 30,
+   "shard": 1
+  },
+  "fam": "cannon",
+  "tier": 2,
+  "unlock": {
+   "from": "cannon",
+   "mk": 3
+  }
+ },
+ "cannon3": {
+  "name": "Rivet cannon",
+  "ab": "RC",
+  "cat": "weapon",
+  "hp": 115,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffe08a",
+  "desc": "Fires hot rivets. Pierces one enemy.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 24.2,
+   "rate": 5.17,
+   "range": 345,
+   "arc": 130,
+   "speed": 680,
+   "spread": 0.06,
+   "pierce": 1
+  },
+  "cost": {
+   "scrap": 280,
+   "copper": 80,
+   "pyro": 30,
+   "shard": 3
+  },
+  "fam": "cannon",
+  "tier": 3,
+  "unlock": {
+   "from": "cannon2",
+   "mk": 3
   }
  },
  "shotgun": {
@@ -127,6 +470,74 @@
   },
   "cost": {
    "scrap": 35
+  },
+  "fam": "shotgun",
+  "tier": 1
+ },
+ "shotgun2": {
+  "name": "Circular saw launcher",
+  "ab": "CS",
+  "cat": "weapon",
+  "hp": 88,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffa866",
+  "desc": "Bigger blades, wider fan.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 14.5,
+   "rate": 1.6,
+   "range": 230,
+   "arc": 140,
+   "speed": 600,
+   "spread": 0.42,
+   "pellets": 8
+  },
+  "cost": {
+   "scrap": 130,
+   "copper": 30,
+   "shard": 1
+  },
+  "fam": "shotgun",
+  "tier": 2,
+  "unlock": {
+   "from": "shotgun",
+   "mk": 3
+  }
+ },
+ "shotgun3": {
+  "name": "Table saw cannon",
+  "ab": "TS",
+  "cat": "weapon",
+  "hp": 126,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffc9a0",
+  "desc": "Blades that keep cutting through two enemies.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 21,
+   "rate": 1.6,
+   "range": 250,
+   "arc": 140,
+   "speed": 600,
+   "spread": 0.42,
+   "pellets": 9,
+   "pierce": 2
+  },
+  "cost": {
+   "scrap": 300,
+   "copper": 80,
+   "pyro": 30,
+   "shard": 3
+  },
+  "fam": "shotgun",
+  "tier": 3,
+  "unlock": {
+   "from": "shotgun2",
+   "mk": 3
   }
  },
  "laser": {
@@ -150,6 +561,68 @@
   "cost": {
    "crystal": 20,
    "copper": 10
+  },
+  "fam": "laser",
+  "tier": 1
+ },
+ "laser2": {
+  "name": "Fiber laser",
+  "ab": "FL",
+  "cat": "weapon",
+  "hp": 64,
+  "mass": 1,
+  "power": -2,
+  "dir": true,
+  "color": "#ff6680",
+  "desc": "Faster, hotter beam. +20% per adjacent battery.",
+  "w": {
+   "type": "energy",
+   "dmg": 42.0,
+   "rate": 1.61,
+   "range": 360,
+   "arc": 70,
+   "beam": true
+  },
+  "cost": {
+   "crystal": 70,
+   "copper": 40,
+   "shard": 1
+  },
+  "fam": "laser",
+  "tier": 2,
+  "unlock": {
+   "from": "laser",
+   "mk": 3
+  }
+ },
+ "laser3": {
+  "name": "Industrial laser",
+  "ab": "IL",
+  "cat": "weapon",
+  "hp": 92,
+  "mass": 1,
+  "power": -2,
+  "dir": true,
+  "color": "#ff9db0",
+  "desc": "Cuts steel at range. +20% per adjacent battery.",
+  "w": {
+   "type": "energy",
+   "dmg": 63.0,
+   "rate": 1.75,
+   "range": 414.0,
+   "arc": 70,
+   "beam": true
+  },
+  "cost": {
+   "crystal": 170,
+   "copper": 90,
+   "shard": 3
+  },
+  "fam": "laser",
+  "tier": 3,
+  "unlock": {
+   "from": "laser2",
+   "mk": 3
   }
  },
  "tesla": {
@@ -171,6 +644,66 @@
   },
   "cost": {
    "copper": 30
+  },
+  "fam": "tesla",
+  "tier": 1
+ },
+ "tesla2": {
+  "name": "TIG welder",
+  "ab": "TG",
+  "cat": "weapon",
+  "hp": 72,
+  "mass": 1.5,
+  "power": -2,
+  "color": "#a8d0ff",
+  "desc": "Arcs jump to 4 more enemies.",
+  "w": {
+   "type": "electric",
+   "dmg": 18.2,
+   "rate": 1.2,
+   "range": 220,
+   "arc": 360,
+   "chain": 4
+  },
+  "cost": {
+   "copper": 100,
+   "crystal": 20,
+   "shard": 1
+  },
+  "fam": "tesla",
+  "tier": 2,
+  "unlock": {
+   "from": "tesla",
+   "mk": 3
+  }
+ },
+ "tesla3": {
+  "name": "Arc furnace",
+  "ab": "AF",
+  "cat": "weapon",
+  "hp": 104,
+  "mass": 1.5,
+  "power": -2,
+  "color": "#d2e6ff",
+  "desc": "Arcs jump to 5 more enemies.",
+  "w": {
+   "type": "electric",
+   "dmg": 26.0,
+   "rate": 1.2,
+   "range": 246.4,
+   "arc": 360,
+   "chain": 5
+  },
+  "cost": {
+   "copper": 220,
+   "crystal": 60,
+   "shard": 3
+  },
+  "fam": "tesla",
+  "tier": 3,
+  "unlock": {
+   "from": "tesla2",
+   "mk": 3
   }
  },
  "flamer": {
@@ -198,6 +731,76 @@
   "cost": {
    "pyro": 25,
    "scrap": 10
+  },
+  "fam": "flamer",
+  "tier": 1
+ },
+ "flamer2": {
+  "name": "Industrial glue gun",
+  "ab": "IG",
+  "cat": "weapon",
+  "hp": 80,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ff9fe3",
+  "desc": "More glue, longer burn.",
+  "w": {
+   "type": "fire",
+   "dmg": 10.15,
+   "rate": 10,
+   "range": 185,
+   "arc": 80,
+   "speed": 340,
+   "spread": 0.3,
+   "burn": 22.4,
+   "life": 0.55,
+   "pierce": 2
+  },
+  "cost": {
+   "pyro": 80,
+   "scrap": 40,
+   "shard": 1
+  },
+  "fam": "flamer",
+  "tier": 2,
+  "unlock": {
+   "from": "flamer",
+   "mk": 3
+  }
+ },
+ "flamer3": {
+  "name": "Hot-melt cannon",
+  "ab": "HM",
+  "cat": "weapon",
+  "hp": 115,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffc8f0",
+  "desc": "A firehose of molten glue.",
+  "w": {
+   "type": "fire",
+   "dmg": 14.7,
+   "rate": 10,
+   "range": 212.75,
+   "arc": 80,
+   "speed": 340,
+   "spread": 0.3,
+   "burn": 32.0,
+   "life": 0.55,
+   "pierce": 2
+  },
+  "cost": {
+   "pyro": 190,
+   "resin": 40,
+   "shard": 3
+  },
+  "fam": "flamer",
+  "tier": 3,
+  "unlock": {
+   "from": "flamer2",
+   "mk": 3
   }
  },
  "mortar": {
@@ -221,6 +824,68 @@
   "cost": {
    "pyro": 20,
    "scrap": 20
+  },
+  "fam": "mortar",
+  "tier": 1
+ },
+ "mortar2": {
+  "name": "Plasma torch",
+  "ab": "PT",
+  "cat": "weapon",
+  "hp": 96,
+  "mass": 2.5,
+  "power": -1,
+  "color": "#d9a3ff",
+  "desc": "Bigger plasma globs, bigger splash.",
+  "w": {
+   "type": "explosive",
+   "dmg": 37.7,
+   "rate": 0.7,
+   "range": 400,
+   "arc": 360,
+   "lob": true,
+   "aoe": 84.0
+  },
+  "cost": {
+   "pyro": 70,
+   "scrap": 60,
+   "shard": 1
+  },
+  "fam": "mortar",
+  "tier": 2,
+  "unlock": {
+   "from": "mortar",
+   "mk": 3
+  }
+ },
+ "mortar3": {
+  "name": "Plasma arc cannon",
+  "ab": "PA",
+  "cat": "weapon",
+  "hp": 138,
+  "mass": 2.5,
+  "power": -1,
+  "color": "#ecd0ff",
+  "desc": "Sun-hot plasma. Huge splash.",
+  "w": {
+   "type": "explosive",
+   "dmg": 54.6,
+   "rate": 0.77,
+   "range": 400,
+   "arc": 360,
+   "lob": true,
+   "aoe": 101.5
+  },
+  "cost": {
+   "pyro": 170,
+   "crystal": 40,
+   "shard": 3
+  },
+  "fam": "mortar",
+  "tier": 3,
+  "unlock": {
+   "from": "mortar2",
+   "mk": 3
   }
  },
  "battery": {
@@ -234,6 +899,49 @@
   "desc": "+4 power. Boosts adjacent laser cutters and arc welders.",
   "cost": {
    "copper": 20
+  },
+  "fam": "battery",
+  "tier": 1
+ },
+ "battery2": {
+  "name": "Power bank",
+  "ab": "PB",
+  "cat": "energy",
+  "hp": 72,
+  "mass": 1,
+  "power": 7,
+  "color": "#c8ff6b",
+  "desc": "+7 power. Boosts adjacent laser cutters and arc welders.",
+  "cost": {
+   "copper": 80,
+   "shard": 1
+  },
+  "fam": "battery",
+  "tier": 2,
+  "unlock": {
+   "from": "battery",
+   "mk": 3
+  }
+ },
+ "battery3": {
+  "name": "Fusion cell",
+  "ab": "FC",
+  "cat": "energy",
+  "hp": 104,
+  "mass": 1,
+  "power": 11,
+  "color": "#eaffb0",
+  "desc": "+11 power. Do not lick.",
+  "cost": {
+   "copper": 180,
+   "crystal": 50,
+   "shard": 3
+  },
+  "fam": "battery",
+  "tier": 3,
+  "unlock": {
+   "from": "battery2",
+   "mk": 3
   }
  },
  "magnet": {
@@ -248,7 +956,52 @@
   "cost": {
    "copper": 15,
    "scrap": 10
+  },
+  "fam": "magnet",
+  "tier": 1
+ },
+ "magnet2": {
+  "name": "Industrial magnet",
+  "ab": "IM",
+  "cat": "util",
+  "hp": 72,
+  "mass": 1,
+  "magnet": 150,
+  "color": "#ff7ab8",
+  "desc": "+150 pickup range.",
+  "cost": {
+   "copper": 70,
+   "scrap": 40,
+   "shard": 1
+  },
+  "fam": "magnet",
+  "tier": 2,
+  "unlock": {
+   "from": "magnet",
+   "mk": 3
   }
+ },
+ "magnet3": {
+  "name": "Tractor beam",
+  "ab": "TB",
+  "cat": "util",
+  "hp": 96,
+  "mass": 1,
+  "magnet": 230,
+  "color": "#ffb3d6",
+  "desc": "+230 pickup range.",
+  "cost": {
+   "copper": 150,
+   "crystal": 60,
+   "shard": 3
+  },
+  "fam": "magnet",
+  "tier": 3,
+  "unlock": {
+   "from": "magnet2",
+   "mk": 3
+  },
+  "power": -1
  },
  "repair": {
   "name": "Repair clamp",
@@ -262,6 +1015,122 @@
   "desc": "Fixes adjacent blocks by 7 HP/s.",
   "cost": {
    "resin": 25
+  },
+  "fam": "repair",
+  "tier": 1
+ },
+ "repair2": {
+  "name": "Welding robot",
+  "ab": "WR",
+  "cat": "util",
+  "hp": 81,
+  "mass": 1,
+  "power": -1,
+  "repair": 13,
+  "color": "#fff3c4",
+  "desc": "Fixes adjacent blocks by 13 HP/s.",
+  "cost": {
+   "resin": 80,
+   "copper": 30,
+   "shard": 1
+  },
+  "fam": "repair",
+  "tier": 2,
+  "unlock": {
+   "from": "repair",
+   "mk": 3
+  }
+ },
+ "repair3": {
+  "name": "Nanobot swarm",
+  "ab": "NS",
+  "cat": "util",
+  "hp": 117,
+  "mass": 1,
+  "power": -1,
+  "repair": 21,
+  "color": "#fffbe8",
+  "desc": "Fixes adjacent blocks by 21 HP/s.",
+  "cost": {
+   "resin": 170,
+   "crystal": 40,
+   "shard": 3
+  },
+  "fam": "repair",
+  "tier": 3,
+  "unlock": {
+   "from": "repair2",
+   "mk": 3
+  }
+ },
+ "zapper": {
+  "name": "Dust extractor",
+  "ab": "DX",
+  "cat": "util",
+  "hp": 45,
+  "mass": 1,
+  "power": -1,
+  "color": "#6fffd2",
+  "fam": "zapper",
+  "tier": 1,
+  "desc": "Sucks enemy projectiles out of the air within 130 range, 3 per second.",
+  "pd": {
+   "range": 130,
+   "rate": 3
+  },
+  "cost": {
+   "copper": 30,
+   "crystal": 10
+  }
+ },
+ "zapper2": {
+  "name": "Spark gap",
+  "ab": "SG",
+  "cat": "util",
+  "hp": 80,
+  "mass": 1,
+  "power": -2,
+  "color": "#a6ffe6",
+  "fam": "zapper",
+  "tier": 2,
+  "desc": "Zaps enemy projectiles within 160 range, 5 per second.",
+  "pd": {
+   "range": 160,
+   "rate": 5
+  },
+  "cost": {
+   "copper": 90,
+   "crystal": 40,
+   "shard": 1
+  },
+  "unlock": {
+   "from": "zapper",
+   "mk": 3
+  }
+ },
+ "zapper3": {
+  "name": "Force field emitter",
+  "ab": "FF",
+  "cat": "util",
+  "hp": 120,
+  "mass": 1,
+  "power": -3,
+  "color": "#d6fff4",
+  "fam": "zapper",
+  "tier": 3,
+  "desc": "Deletes enemy projectiles within 200 range, 8 per second.",
+  "pd": {
+   "range": 200,
+   "rate": 8
+  },
+  "cost": {
+   "copper": 200,
+   "crystal": 90,
+   "shard": 3
+  },
+  "unlock": {
+   "from": "zapper2",
+   "mk": 3
   }
  }
 }

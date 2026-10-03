@@ -1,6 +1,6 @@
 // One run: movement, director, combat, enemies, loot. Pure simulation, no DOM
 // or canvas, so it runs headless in tests and the balance bot.
-import { B, DCOL, DTYPES, EB, PERKS, RES, RES_KEYS, T, WORLDS, type DType, type PerkDef, type ResKey, type WorldDef } from '../data';
+import { B, DCOL, DTYPES, EB, isCab, isUnlocked, PERKS, RES, RES_KEYS, T, WORLDS, type DType, type PerkDef, type ResKey, type WorldDef } from '../data';
 import { angDiff, clamp, lerp, swapRemove, TAU, roman } from '../core/math';
 import { Rng } from '../core/rng';
 import { compileSpecies, type Species } from '../enemies/species';
@@ -24,6 +24,10 @@ export interface Enemy {
   lastType: DType; lastSrc?: string; isMini?: boolean; dmgAcc: number; dmgT: number; crit: boolean;
   /** stable id (co-op snapshots); owner index of the last hit and of the burn */
   id: number; lastO: number; burnO: number;
+  /** heavy weapons: lobbed bombs, charged rail shots, homing rockets, scrap spray */
+  lob: number; snipe: number; rocket: number; spray: number; cd2: number; cd3: number;
+  /** rail shot charge: seconds left and the aim point (telegraphed to the player) */
+  aimT: number; aimX: number; aimY: number;
   /** previous-step position, for render interpolation */
   px?: number; py?: number;
 }
@@ -34,7 +38,14 @@ export interface Projectile {
   o: number;
   lob?: boolean; sx?: number; sy?: number; tx?: number; ty?: number; t?: number; T?: number; z?: number; aoe?: number;
 }
-export interface EnemyBullet { x: number; y: number; vx: number; vy: number; dmg: number; life: number; sp: Species | null }
+export type EnemyShot = 'bolt' | 'spray' | 'snipe' | 'rocket' | 'lob';
+export const SHOT_KINDS: EnemyShot[] = ['bolt', 'spray', 'snipe', 'rocket', 'lob'];
+export interface EnemyBullet {
+  x: number; y: number; vx: number; vy: number; dmg: number; life: number; sp: Species | null;
+  kind: EnemyShot;
+  /** lob: start, target, flight time, progress, height */
+  sx?: number; sy?: number; tx?: number; ty?: number; T?: number; t?: number; z?: number;
+}
 export interface Pickup { x: number; y: number; k: ResKey | 'xp'; amt: number; vx: number; vy: number }
 export interface Deposit { x: number; y: number; res: ResKey; amt: number; prog: number; cache?: boolean }
 export interface Hazard { x: number; y: number; r: number }
@@ -71,6 +82,8 @@ export interface RunStats {
   dist: number; idleT: number; hazardT: number; spins: number; mined: number; caches: number;
   blocksLost: number; maxChain: number; crits: number; minCab: number; takenAt120: number;
   maxHit: number; touched: boolean; firstTouchT: number;
+  /** enemy projectiles destroyed by point defence; times the truck was wrecked (co-op) */
+  zapped: number; downs: number;
 }
 
 /** One truck in the run. Solo runs have exactly one; co-op adds teammates. */
@@ -90,7 +103,7 @@ export interface PlayerSpec { pid: string; name: string; build: BuildCell[]; up:
 export const PLAYER_COLORS = ['#00f0ff', '#ff2bd6', '#f5ff3b', '#5dff8a'];
 export const RESPAWN_TIME = 10;
 
-const freshStats = (): RunStats => ({ dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1 });
+const freshStats = (): RunStats => ({ dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1, zapped: 0, downs: 0 });
 
 export interface RunOptions { seed?: number; /** extra players (co-op); the save's owner is always player 0 */ crew?: PlayerSpec[]; pid?: string; name?: string; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
 
@@ -290,6 +303,7 @@ export class Run {
     const e: Enemy = {
       sp, x, y, vx: 0, vy: 0, h: Math.atan2(V.y - y, V.x - x), hp: c.hp * hpM, max: c.hp * hpM, sc, r: (c.ext + 0.6) * EC * sc,
       speed: c.speed * spdM, melee: c.melee * dmgM, gun: bossLv ? 7 * (1 + 0.12 * (tier - 1)) : c.gun * dmgM, boom: bossLv ? 0 : c.boom * dmgM,
+      lob: c.lob * dmgM, snipe: c.snipe * dmgM, rocket: c.rocket * dmgM, spray: c.spray * dmgM, cd2: this.rng.range(1.5, 3.5), cd3: this.rng.range(1, 2.5), aimT: 0, aimX: 0, aimY: 0,
       res: c.res, pref: sp.pref || (bossLv ? 160 : 0), cd: this.rng.range(0.5, 1.8), flash: 0, burn: 0, burnDps: 0, dead: false,
       t0: this.t, bossLv, lastType: 'kinetic', dmgAcc: 0, dmgT: 0, crit: false, id: this.nextEnemyId++, lastO: 0, burnO: 0,
     };
@@ -575,7 +589,7 @@ export class Run {
     this.burst(b.wx, b.wy, 14, B[b.t].color, 200);
     if (p.idx === 0) { this.shake = Math.max(this.shake, 7); this.emit({ k: 'hurt' }); }
     this.snd(180, 0.3, 'sawtooth', 0.04);
-    if (b.t === 'cab') { this.down(p); return; }
+    if (isCab(b.t)) { this.down(p); return; }
     const keep = reachable(V);
     const lost = V.list.filter(o => !keep.has(o));
     p.stats.blocksLost += 1 + lost.length;
@@ -590,6 +604,7 @@ export class Run {
   /** Cab destroyed. Solo: the run ends. Co-op: the truck respawns unless the whole crew is down. */
   private down(p: Player): void {
     p.stats.blocksLost += p.V.list.length;
+    p.stats.downs++;
     if (!this.coop) { this.end(false); return; }
     for (const o of p.V.list) { o.dead = true; this.debris(o); }
     p.V.list = []; p.V.map.clear();
@@ -617,6 +632,95 @@ export class Run {
     p.gone = true; p.alive = false; p.V.list = []; p.V.map.clear(); p.pendingCards = 0;
     this.toast(p.name + ' left the shift', 2000);
     if (!this.over && !this.alivePlayers().length) this.end(false);
+  }
+
+  /** Enemy heavy weapons. Each has a readable tell before it hurts. */
+  private heavyWeapons(e: Enemy, tp: Player, d: number, dt: number): void {
+    const r = this.rng, V = tp.V;
+    // scrap spray: a short-range fan
+    if (e.spray > 0) {
+      e.cd3 -= dt;
+      if (e.cd3 <= 0 && d < 300) {
+        e.cd3 = 2.2;
+        const base = Math.atan2(V.y - e.y, V.x - e.x);
+        for (let j = 0; j < 5; j++) {
+          const ang = base + (j - 2) * 0.13 + r.range(-0.03, 0.03);
+          this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 210, vy: Math.sin(ang) * 210, dmg: e.spray, life: 1.3, sp: e.sp, kind: 'spray' });
+        }
+      }
+    }
+    e.cd2 -= dt;
+    // rail spike: charges for 0.9 s with a visible laser line, then fires where you were
+    if (e.snipe > 0) {
+      if (e.aimT > 0) {
+        e.aimT -= dt;
+        if (e.aimT <= 0) {
+          const ang = Math.atan2(e.aimY - e.y, e.aimX - e.x);
+          this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 560, vy: Math.sin(ang) * 560, dmg: e.snipe, life: 1.4, sp: e.sp, kind: 'snipe' });
+          e.cd2 = 3.2;
+          this.snd(1400, 0.12, 'sawtooth', 0.02);
+        }
+      } else if (e.cd2 <= 0 && d < 560) {
+        e.aimT = 0.9; e.aimX = V.x + V.vx * 0.5; e.aimY = V.y + V.vy * 0.5;
+      }
+      return;
+    }
+    if (e.cd2 > 0) return;
+    // bomb lobber: an arcing bomb with a warning ring where it will land
+    if (e.lob > 0 && d < 520) {
+      e.cd2 = 3.6;
+      const T_ = 1.15;
+      const tx = V.x + V.vx * T_ * 0.7, ty = V.y + V.vy * T_ * 0.7;
+      this.EBL.push({ x: e.x, y: e.y, vx: 0, vy: 0, dmg: e.lob, life: T_ + 0.2, sp: e.sp, kind: 'lob', sx: e.x, sy: e.y, tx, ty, T: T_, t: 0, z: 0 });
+    } else if (e.rocket > 0 && d < 620) {
+      // rocket pod: a slow homing missile; outrun it, out-turn it, or zap it
+      e.cd2 = 3.6;
+      const ang = Math.atan2(V.y - e.y, V.x - e.x);
+      this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 175, vy: Math.sin(ang) * 175, dmg: e.rocket, life: 4.5, sp: e.sp, kind: 'rocket' });
+    }
+  }
+
+  /** Splash damage from enemy bombs and rockets, to every truck in range. */
+  private enemyBlast(x: number, y: number, rad: number, dmg: number, sp: Species | null): void {
+    for (const pl of this.players) {
+      if (!pl.alive) continue;
+      for (const b of pl.V.list.slice()) {
+        const bd = Math.hypot(b.wx - x, b.wy - y);
+        if (bd < rad) this.hitPlayer(b, dmg * (1 - (bd / rad) * 0.7), sp, pl);
+        if (this.over) return;
+      }
+    }
+    this.ring(x, y, rad, '#ff7a1a');
+    this.burst(x, y, 12, '#ffb03a', 200);
+    this.snd(110, 0.25, 'sawtooth', 0.03);
+  }
+
+  /** Point defence: zappers destroy the nearest enemy projectile in range. */
+  private pointDefence(p: Player, dt: number): void {
+    const zs = p.V.s.zappers;
+    if (!zs.length || !this.EBL.length) { for (const z of zs) z.cd = Math.max(0, z.cd - dt); return; }
+    for (const z of zs) {
+      if (z.dead) continue;
+      z.cd -= dt;
+      if (z.cd > 0) continue;
+      const pd = B[z.t].pd!;
+      let best = -1, bd = pd.range * pd.range;
+      for (let i = 0; i < this.EBL.length; i++) {
+        const b = this.EBL[i];
+        const dd = (b.x - z.wx) ** 2 + (b.y - z.wy) ** 2;
+        if (dd < bd) { bd = dd; best = i; }
+      }
+      if (best < 0) { z.cd = 0.05; continue; }
+      const b = this.EBL[best];
+      if (this.visual) {
+        this.BEAMS.push({ x1: z.wx, y1: z.wy, x2: b.x, y2: b.y, life: 0.1, max: 0.1, c: '#6fffd2', w: 2, zig: true, glow: true, seed: 0 });
+        this.burst(b.x, b.y, 4, '#6fffd2', 90);
+      }
+      swapRemove(this.EBL, best);
+      p.stats.zapped++;
+      z.cd = 1 / (pd.rate * (1 + 0.08 * (p.up[z.t] || 0)) * p.V.s.powerFactor);
+      if (p.idx === this.local) this.emit({ k: 'shot', f: 1200 });
+    }
   }
 
   // ------------------------------------------------------------ fx helpers
@@ -718,7 +822,7 @@ export class Run {
 
     this.director(dt);
     this.buildHash();
-    for (const p of this.players) if (p.alive) this.fireWeapons(p, dt);
+    for (const p of this.players) if (p.alive) { this.fireWeapons(p, dt); this.pointDefence(p, dt); }
     if (this.over) return;
 
     // player projectiles
@@ -817,10 +921,11 @@ export class Run {
           const base = Math.atan2(dy, dx);
           for (let j = 0; j < n; j++) {
             const ang = base + (n > 1 ? (j - (n - 1) / 2) * 0.22 : r.range(-0.05, 0.05));
-            this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 240, vy: Math.sin(ang) * 240, dmg: e.gun, life: 2.2, sp: e.sp });
+            this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 240, vy: Math.sin(ang) * 240, dmg: e.gun, life: 2.2, sp: e.sp, kind: 'bolt' });
           }
         }
       }
+      if (e.spray > 0 || e.lob > 0 || e.snipe > 0 || e.rocket > 0) this.heavyWeapons(e, tp, d, dt);
     }
     this.E = this.E.filter(e => !e.dead);
 
@@ -828,14 +933,34 @@ export class Run {
     const EBL = this.EBL;
     for (let i = EBL.length - 1; i >= 0; i--) {
       const p = EBL[i];
-      p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.kind === 'lob') {
+        p.t! += dt;
+        const k = Math.min(1, p.t! / p.T!);
+        p.x = lerp(p.sx!, p.tx!, k); p.y = lerp(p.sy!, p.ty!, k); p.z = Math.sin(k * Math.PI) * 90;
+        if (k >= 1) { this.enemyBlast(p.tx!, p.ty!, 45, p.dmg, p.sp); swapRemove(EBL, i); if (this.over) return; }
+        continue;
+      }
+      if (p.kind === 'rocket') {
+        const tgt = this.nearestPlayer(p.x, p.y);
+        if (tgt) {
+          const sp = Math.hypot(p.vx, p.vy), want = Math.atan2(tgt.V.y - p.y, tgt.V.x - p.x), cur = Math.atan2(p.vy, p.vx);
+          const na = cur + clamp(angDiff(cur, want), -1.9 * dt, 1.9 * dt);
+          p.vx = Math.cos(na) * sp; p.vy = Math.sin(na) * sp;
+        }
+      }
+      p.x += p.vx * dt; p.y += p.vy * dt;
       let hit = false;
       for (const pl of this.players) {
         if (!pl.alive) continue;
         const V = pl.V;
         if (Math.hypot(p.x - V.x, p.y - V.y) < V.s.radius + 4) {
           const nb = this.nearestBlock(pl, p.x, p.y);
-          if (nb.b && nb.d < CS * 0.62 + 4) { this.hitPlayer(nb.b, p.dmg, p.sp, pl); hit = true; if (this.over) return; break; }
+          if (nb.b && nb.d < CS * 0.62 + 4) {
+            if (p.kind === 'rocket') this.enemyBlast(p.x, p.y, 32, p.dmg, p.sp);
+            else this.hitPlayer(nb.b, p.dmg, p.sp, pl);
+            hit = true; if (this.over) return; break;
+          }
         }
       }
       if (hit || p.life <= 0) swapRemove(EBL, i);
@@ -912,7 +1037,7 @@ export class Run {
     const cards: Card[] = [];
     const used = new Set<string>();
     const weaponsOn = [...new Set(V.s.weapons.map(b => b.t))];
-    const placeable = Object.keys(B).filter(k => k !== 'cab');
+    const placeable = Object.keys(B).filter(k => !isCab(k) && isUnlocked(k, p.up));
     const canPlace = validCells(V.list, p.gridR + 1).length > 0;
     let guard = 0;
     while (cards.length < 3 && guard++ < 80) {

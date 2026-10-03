@@ -5,12 +5,13 @@ import { B, DTYPES, RES_KEYS, T, type Cell, type DType, type ResKey } from '../d
 import { angDiff, TAU } from '../core/math';
 import { compileSpecies, type Species } from '../enemies/species';
 import { defaultSave } from '../persistence/save';
-import { Run, type Card, type Enemy, type Hazard, type PlayerSpec, type Projectile, type RunResult } from '../sim/run';
+import { Run, SHOT_KINDS, type Card, type Enemy, type Hazard, type PlayerSpec, type Projectile, type RunResult } from '../sim/run';
 import { compileVehicle, freshMods, makeVehicle, type BuildCell } from '../vehicle/vehicle';
 
 export const SNAP_HZ = 12;
 const TYPES = Object.keys(B);
-const VERSION = 3;
+const VERSION = 4;
+const BEAM_COLORS = ['#ff3b5c', '#9fd0ff', '#6fffd2'];
 
 export interface SpeciesWire { id: number; name: string; cells: Cell[]; pref: number; spd: number }
 
@@ -64,7 +65,8 @@ export function encodeSnapshot(run: Run): ArrayBuffer {
   out.push(run.E.length);
   for (const e of run.E) {
     const flags = (e.flash > 0 ? 1 : 0) | (e.burn > 0 ? 2 : 0) | (e.bossLv === 1 ? 4 : 0) | (e.bossLv === 2 ? 8 : 0) | (e.isMini ? 16 : 0);
-    out.push(e.id % 32000, spIdx.get(e.sp) ?? 0, I(e.x), I(e.y), I(e.h * 1000), I(e.vx), I(e.vy), I((e.hp / e.max) * 1000), flags);
+    out.push(e.id % 32000, spIdx.get(e.sp) ?? 0, I(e.x), I(e.y), I(e.h * 1000), I(e.vx), I(e.vy), I((e.hp / e.max) * 1000), flags,
+      e.aimT > 0 ? I(e.aimT * 1000) : 0, I(e.aimX), I(e.aimY));
   }
   // player projectiles (cap to keep packets small)
   const pb = run.PB.length > 400 ? run.PB.slice(-400) : run.PB;
@@ -74,14 +76,14 @@ export function encodeSnapshot(run: Run): ArrayBuffer {
     else out.push(0, I(p.x), I(p.y), I(p.vx), I(p.vy), TYPES.indexOf(p.src), DTYPES.indexOf(p.type), I(p.life * 1000), I(p.r));
   }
   out.push(run.EBL.length);
-  for (const b of run.EBL) out.push(I(b.x), I(b.y), I(b.vx), I(b.vy));
+  for (const b of run.EBL) out.push(I(b.x), I(b.y), I(b.vx), I(b.vy), SHOT_KINDS.indexOf(b.kind), I(b.z || 0), I(b.tx || 0), I(b.ty || 0), I(((b.t || 0) / (b.T || 1)) * 1000));
   const pk = run.PK.length > 500 ? run.PK.slice(-500) : run.PK;
   out.push(pk.length);
   for (const p of pk) out.push(I(p.x), I(p.y), p.k === 'xp' ? 0 : RES_KEYS.indexOf(p.k) + 1, I(p.amt));
   out.push(run.DEP.length);
   for (const d of run.DEP) out.push(I(d.x), I(d.y), RES_KEYS.indexOf(d.res), I(d.prog * 1000), d.cache ? 1 : 0);
   out.push(run.BEAMS.length);
-  for (const b of run.BEAMS) out.push(I(b.x1), I(b.y1), I(b.x2), I(b.y2), b.zig ? 1 : 0, I(b.life * 1000), I(b.max * 1000));
+  for (const b of run.BEAMS) out.push(I(b.x1), I(b.y1), I(b.x2), I(b.y2), Math.max(0, BEAM_COLORS.indexOf(b.c === '#3df5ff' ? '#ff3b5c' : b.c)), I(b.life * 1000), I(b.max * 1000));
   return new Int16Array(out).buffer;
 }
 
@@ -165,7 +167,7 @@ export class Mirror {
     const ne = n();
     const seen = new Set<number>();
     for (let k = 0; k < ne; k++) {
-      const id = n(), si = n(), x = n(), y = n(), h = n() / 1000, vx = n(), vy = n(), hp = n() / 1000, fl = n();
+      const id = n(), si = n(), x = n(), y = n(), h = n() / 1000, vx = n(), vy = n(), hp = n() / 1000, fl = n(), aimT = n() / 1000, aimX = n(), aimY = n();
       seen.add(id);
       let e = this.enemies.get(id);
       const bossLv = fl & 8 ? 2 : fl & 4 ? 1 : 0;
@@ -174,10 +176,11 @@ export class Mirror {
         const sc = bossLv === 2 ? 2.7 : bossLv === 1 ? 1.9 : 1;
         e = { sp, x, y, vx, vy, h, hp: hp * 100, max: 100, sc, r: (sp.c.ext + 0.6) * T.enemyCell * sc, speed: 0, melee: 0, gun: 0, boom: 0, res: {},
           pref: 0, cd: 0, flash: 0, burn: 0, burnDps: 0, dead: false, t0: 0, bossLv, lastType: 'kinetic', dmgAcc: 0, dmgT: 0, crit: false,
-          id, lastO: 0, burnO: 0, isMini: !!(fl & 16) } as Enemy;
+          id, lastO: 0, burnO: 0, isMini: !!(fl & 16), lob: 0, snipe: 0, rocket: 0, spray: 0, cd2: 0, cd3: 0, aimT: 0, aimX: 0, aimY: 0 } as Enemy;
         this.enemies.set(id, e);
       }
       e.hp = hp * e.max; e.flash = fl & 1 ? 0.07 : 0; e.burn = fl & 2 ? 0.5 : 0;
+      e.aimT = aimT; e.aimX = aimX; e.aimY = aimY;
       this.targets.set(e, { x, y, h, vx, vy });
     }
     for (const [id, e] of this.enemies) {
@@ -212,7 +215,10 @@ export class Mirror {
     run.PB = PB;
     const neb = n();
     run.EBL = [];
-    for (let k = 0; k < neb; k++) run.EBL.push({ x: n(), y: n(), vx: n(), vy: n(), dmg: 0, life: 1, sp: null });
+    for (let k = 0; k < neb; k++) {
+      const x = n(), y = n(), vx = n(), vy = n(), kind = SHOT_KINDS[n()] || 'bolt', z = n(), tx = n(), ty = n(), prog = n() / 1000;
+      run.EBL.push({ x, y, vx, vy, dmg: 0, life: 1, sp: null, kind, z, tx, ty, T: 1, t: prog });
+    }
     const npk = n();
     run.PK = [];
     for (let k = 0; k < npk; k++) { const x = n(), y = n(), kk = n(), amt = n(); run.PK.push({ x, y, k: kk === 0 ? 'xp' : RES_KEYS[kk - 1], amt, vx: 0, vy: 0 }); }
@@ -222,8 +228,8 @@ export class Mirror {
     const nbm = n();
     run.BEAMS = [];
     for (let k = 0; k < nbm; k++) {
-      const x1 = n(), y1 = n(), x2 = n(), y2 = n(), zig = n() === 1, life = n() / 1000, max = n() / 1000;
-      run.BEAMS.push({ x1, y1, x2, y2, zig, life, max, glow: true, c: zig ? '#9fd0ff' : '#ff3b5c', w: zig ? 3.5 : 3, seed: 0 });
+      const x1 = n(), y1 = n(), x2 = n(), y2 = n(), ci = n(), life = n() / 1000, max = n() / 1000;
+      run.BEAMS.push({ x1, y1, x2, y2, zig: ci > 0, life, max, glow: true, c: BEAM_COLORS[ci] || '#ff3b5c', w: ci === 1 ? 3.5 : ci === 2 ? 2 : 3, seed: 0 });
     }
     if (over) run.over = true;
   }
@@ -272,6 +278,7 @@ export class Mirror {
     }
     for (const p of run.PB) if (!p.lob) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
     for (const b of run.EBL) { b.x += b.vx * dt; b.y += b.vy * dt; }
+    for (const e of run.E) if (e.aimT > 0) e.aimT -= dt;
     for (const b of run.BEAMS) b.life -= dt;
     const FX = run.FX;
     for (let i = FX.length - 1; i >= 0; i--) {

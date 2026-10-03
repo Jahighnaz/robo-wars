@@ -6,7 +6,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { B, DCOL, EB, RES, T, type DType } from '../../data';
+import { B, DCOL, EB, fam, RES, T, type DType } from '../../data';
 import { clamp, lerp, TAU } from '../../core/math';
 import type { Run } from '../../sim/run';
 import { col, Pool } from './pool';
@@ -24,12 +24,20 @@ export interface RenderOpts { arcs: boolean; shake: boolean; bloom: boolean; joy
 
 /** Block heights by category (world units). */
 export function blockHeight(t: string): number {
-  const c = B[t].cat;
-  return t === 'cab' ? 17 : c === 'armor' ? 15 : c === 'weapon' ? 12 : c === 'prop' ? 8 : 11;
+  const c = B[t].cat, tier = B[t].tier || 1;
+  // higher tiers stand a little taller (the big rig cab most of all)
+  const base = c === 'cab' ? 17 + (tier - 1) * 4 : c === 'armor' ? 15 : c === 'weapon' ? 12 : c === 'prop' ? 8 : 11;
+  return base + (c === 'cab' ? 0 : (tier - 1) * 1.5);
 }
 
 /** Barrel / turret details on top of weapon blocks, in block-local space (forward = -z). */
 export function weaponDetail(t: string): { w: number; h: number; l: number; fwd: number } | null {
+  const k = 1 + ((B[t]?.tier || 1) - 1) * 0.18;
+  const d = baseDetail(fam(t));
+  return d ? { w: d.w * k, h: d.h * k, l: d.l * k, fwd: d.fwd } : null;
+}
+
+function baseDetail(t: string): { w: number; h: number; l: number; fwd: number } | null {
   switch (t) {
     case 'cannon': return { w: 4, h: 4, l: 13, fwd: 7 };
     case 'shotgun': return { w: 6, h: 3, l: 6, fwd: 5 };
@@ -314,8 +322,11 @@ export class Renderer3D {
           this.pBarrels.push(ox, h, oz, yaw, det.w, det.h, det.l, c, k);
         }
         if (d.hover) this.pGlow.push(wx, 0.9, wz, 0, 34, 1, 34, col('#2ef2c8'), 0.7);
-        if (b.t === 'shotgun') this.pSaw.push(wx, h + 3.5, wz, this.time * 9, 15, 1, 15, c, k);
-        if (b.t === 'cab') bh.update(wx, h, wz, ph, PV, dt, this.time);
+        const bf = fam(b.t);
+        if (bf === 'shotgun') this.pSaw.push(wx, h + 3.5, wz, this.time * 9, 15, 1, 15, c, k);
+        if (bf === 'zapper') { this.pSaw.push(wx, h + 2, wz, -this.time * 14, 14, 1, 14, c, k * 0.8); this.pGlow.push(wx, 1, wz, 0, (d.pd!.range) * 2, 1, (d.pd!.range) * 2, c, 0.06); }
+        if (B[b.t].tier > 1) this.pRing.push(wx, h + 0.6, wz, 0, CS * (0.5 + 0.2 * B[b.t].tier), 1, CS * (0.5 + 0.2 * B[b.t].tier), c, 0.25 * B[b.t].tier);
+        if (bf === 'cab') bh.update(wx, h, wz, ph, PV, dt, this.time);
       }
     }
 
@@ -345,8 +356,42 @@ export class Renderer3D {
     // ---- enemy bullets
     for (const p of run.EBL) {
       if (!vis(p.x, p.y)) continue;
-      this.pEnemyShot.push(p.x, 9, p.y, 0, 4.2, 4.2, 4.2, col('#ff2e63'));
-      this.pGlow.push(p.x, 1, p.y, 0, 34, 1, 34, col('#ff2e63'), 0.7);
+      switch (p.kind) {
+        case 'spray':
+          this.pEnemyShot.push(p.x, 8, p.y, 0, 2.8, 2.8, 2.8, col('#f5e05a'));
+          this.pGlow.push(p.x, 1, p.y, 0, 20, 1, 20, col('#f5e05a'), 0.6);
+          break;
+        case 'snipe': {
+          const yaw = -Math.atan2(p.vy, p.vx);
+          this.pBeam.push(p.x, 9, p.y, yaw, 34, 2.2, 2.2, col('#ff5c8a'), 1.2);
+          this.pGlow.push(p.x, 1, p.y, 0, 40, 1, 40, col('#ff5c8a'), 0.8);
+          break;
+        }
+        case 'rocket': {
+          const yaw = -Math.atan2(p.vy, p.vx), ux = Math.cos(-yaw), uy = Math.sin(-yaw);
+          this.pEnemyShot.push(p.x, 9, p.y, yaw, 7, 3.4, 3.4, col('#ff3d3d'), 1.1);
+          this.pGlow.push(p.x - ux * 10, 1, p.y - uy * 10, 0, 30, 1, 30, col('#ff9a3d'), 0.9);
+          this.pSpark.push(p.x - ux * 9, 9, p.y - uy * 9, this.time * 20, 3, 3, 3, col('#ffd27a'), 1);
+          break;
+        }
+        case 'lob': {
+          // the bomb in the air, and a pulsing warning ring where it will land
+          const k = clamp((p.t || 0) / (p.T || 1), 0, 1);
+          this.pEnemyShot.push(p.x, 10 + (p.z || 0), p.y, 0, 5.5, 5.5, 5.5, col('#ffb03a'), 1.1);
+          this.pRing.push(p.tx!, 1.5, p.ty!, 0, 110, 1, 110, col('#ff3d3d'), 0.35 + 0.6 * k + 0.2 * Math.sin(this.time * 20));
+          this.pGlow.push(p.tx!, 1, p.ty!, 0, 110 * k, 1, 110 * k, col('#ff3d3d'), 0.35);
+          break;
+        }
+        default:
+          this.pEnemyShot.push(p.x, 9, p.y, 0, 4.2, 4.2, 4.2, col('#ff2e63'));
+          this.pGlow.push(p.x, 1, p.y, 0, 34, 1, 34, col('#ff2e63'), 0.7);
+      }
+    }
+    // rail spike tells: a thin aiming laser that brightens as the shot charges
+    for (const e of run.E) {
+      if (!(e.aimT > 0) || !vis(e.x, e.y)) continue;
+      const len = Math.hypot(e.aimX - e.x, e.aimY - e.y), k = clamp(1 - e.aimT / 0.9, 0, 1);
+      this.pBeam.push((e.x + e.aimX) / 2, 6, (e.y + e.aimY) / 2, -Math.atan2(e.aimY - e.y, e.aimX - e.x), len, 0.6 + k, 0.6 + k, col('#ff5c8a'), 0.25 + k * 0.9);
     }
 
     // ---- player projectiles

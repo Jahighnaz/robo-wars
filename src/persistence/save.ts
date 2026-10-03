@@ -10,7 +10,7 @@ export interface WorldState {
   res: Record<DType, number>; species: Species[]; log: string[];
 }
 
-export interface Settings { dmgNumbers: boolean; arcs: boolean; shake: boolean; bloom: boolean }
+export interface Settings { dmgNumbers: boolean; arcs: boolean; shake: boolean; bloom: boolean; music: boolean }
 
 export interface Save {
   v: 1;
@@ -28,12 +28,16 @@ export interface Save {
   profile?: Profile;
 }
 
-export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true });
+export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true, music: true });
 
 export function newWorldState(save: Pick<Save, 'nextId'>, k: string): WorldState {
   const w: WorldState = { gen: 0, tier: 1, runs: 0, wins: 0, era: 1, res: {} as Record<DType, number>, species: [], log: [] };
   for (const t of DTYPES) w.res[t] = 0;
-  for (const s of WORLDS[k].seeds) w.species.push(makeSpecies(save.nextId++, s.name, s.cells.map(c => [c[0], c[1], c[2]]), s.pref || 0, 0));
+  for (const s of WORLDS[k].seeds) {
+    const sp = makeSpecies(save.nextId++, s.name, s.cells.map(c => [c[0], c[1], c[2]]), s.pref || 0, 0);
+    sp.pop = s.pop ?? 1;
+    w.species.push(sp);
+  }
   return w;
 }
 
@@ -59,7 +63,7 @@ export function defaultSave(): Save {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function validSave(s: any): s is Save {
   if (!s || s.v !== 1 || !s.res || !s.inv || !Array.isArray(s.build) || !s.worlds) return false;
-  if (!s.build.some((b: BuildCell) => b.t === 'cab' && b.x === 0 && b.y === 0)) return false;
+  if (!s.build.some((b: BuildCell) => B[b.t]?.cat === 'cab' && b.x === 0 && b.y === 0)) return false;
   for (const k of WORLD_KEYS) {
     const w = s.worlds[k];
     if (!w || !Array.isArray(w.species) || w.species.length < 1 || !w.res) return false;

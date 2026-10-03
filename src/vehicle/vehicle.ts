@@ -1,5 +1,5 @@
 // Block grid, connectivity and the stat compiler (shared rules with enemies).
-import { B, T } from '../data';
+import { B, fam, T } from '../data';
 import { clamp, DIRS } from '../core/math';
 import type { Rng } from '../core/rng';
 
@@ -20,6 +20,8 @@ export interface Mods {
 
 export interface VehicleStats {
   mass: number; thrust: number; turnW: number; turn: number; power: number; demand: number;
+  /** point-defence blocks */
+  zappers: Block[];
   magnet: number; trackT: number; hoverT: number; radius: number; weapons: Block[]; props: number;
   speed: number; powerFactor: number; trackFrac: number; hoverFrac: number;
 }
@@ -77,7 +79,7 @@ export function reachable(v: Vehicle): Set<Block> {
 
 export function compileVehicle(v: Vehicle, mods: Mods, up: UpLevels): VehicleStats {
   const CS = T.cellSize;
-  const s = { mass: 0, thrust: 0, turnW: 0, power: 0, demand: 0, magnet: 100 + mods.magnet, trackT: 0, hoverT: 0, radius: CS, weapons: [] as Block[], props: 0 } as VehicleStats;
+  const s = { mass: 0, thrust: 0, turnW: 0, power: 0, demand: 0, magnet: 100 + mods.magnet, trackT: 0, hoverT: 0, radius: CS, weapons: [] as Block[], zappers: [] as Block[], props: 0 } as VehicleStats;
   for (const b of v.list) {
     const d = B[b.t];
     s.mass += d.mass;
@@ -89,10 +91,12 @@ export function compileVehicle(v: Vehicle, mods: Mods, up: UpLevels): VehicleSta
       if (d.hover) s.hoverT += th;
     }
     const pw = d.power || 0;
-    if (pw > 0) s.power += pw + (b.t === 'battery' || b.t === 'cab' ? L : 0);
+    const f = fam(b.t);
+    if (pw > 0) s.power += pw + (f === 'battery' || f === 'cab' ? L : 0);
     else if (pw < 0) s.demand -= pw;
     if (d.magnet) s.magnet += d.magnet + 25 * L;
     if (d.w) s.weapons.push(b);
+    if (d.pd) s.zappers.push(b);
     const rr = Math.hypot(b.x, b.y) * CS + CS * 0.75;
     if (rr > s.radius) s.radius = rr;
   }
@@ -103,9 +107,11 @@ export function compileVehicle(v: Vehicle, mods: Mods, up: UpLevels): VehicleSta
   s.hoverFrac = s.thrust ? s.hoverT / s.thrust : 0;
   for (const b of s.weapons) {
     let chain = 0, rateM = 1, dmgM = 1;
+    const bf = fam(b.t);
     for (const n of neighbours(v, b)) {
-      if (n.t === 'battery') { if (b.t === 'tesla') chain++; if (b.t === 'laser') dmgM += 0.2; }
-      if (n.t === 'cannon' && b.t === 'cannon') rateM += 0.12;
+      const nf = fam(n.t);
+      if (nf === 'battery') { if (bf === 'tesla') chain++; if (bf === 'laser') dmgM += 0.2; }
+      if (nf === 'cannon' && bf === 'cannon') rateM += 0.12;
     }
     b.syn = { chain, rateM, dmgM };
   }

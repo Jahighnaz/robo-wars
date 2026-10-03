@@ -2,6 +2,10 @@
 // whoever holds it on the crew board.
 import type { RunResult } from '../sim/run';
 import { challengeScore, type Profile, type PublicProfile } from './profile';
+import { fam } from '../data';
+
+/** damage dealt by every tier of one tool family */
+export const famDmg = (r: RunResult, f: string) => Object.keys(r.dmg).reduce((a, k) => a + (fam(k) === f ? r.dmg[k] : 0), 0);
 
 export type Unit = 'time' | 'int' | 'dps' | 'm' | 'hp';
 
@@ -35,7 +39,8 @@ export const RECORDS: RecordDef[] = [
   { id: 'flatpack', label: 'Most blocks lost in one shift', title: 'Flat-Pack Disassembler', kind: 'fun', unit: 'int', better: 'high', run: r => r.stats.blocksLost },
   { id: 'speedrun_hr', label: 'Quickest wreck', title: 'Speedrun to HR', kind: 'fun', unit: 'time', better: 'low', run: r => (r.won ? null : r.t) },
   { id: 'commute', label: 'Longest commute in one shift', title: 'Long-Distance Commuter', kind: 'fun', unit: 'm', better: 'high', run: r => r.stats.dist / 18 },
-  { id: 'sticky', label: 'Most glue damage in one shift', title: 'Sticky Fingers', kind: 'fun', unit: 'hp', better: 'high', run: r => r.dmg.flamer || 0 },
+  { id: 'sticky', label: 'Most glue damage in one shift', title: 'Sticky Fingers', kind: 'fun', unit: 'hp', better: 'high', run: r => famDmg(r, 'flamer') },
+  { id: 'bug_zapper', label: 'Most enemy projectiles zapped in one shift', title: 'Human Bug Zapper', kind: 'fun', unit: 'int', better: 'high', run: r => r.stats.zapped || 0 },
   { id: 'inventory', label: 'Most supplies salvaged in one shift', title: 'Inventory Clerk', kind: 'fun', unit: 'int', better: 'high', run: r => r.stats.mined + r.stats.caches },
   { id: 'hammer', label: 'Biggest single hit', title: 'Percussive Maintenance', kind: 'fun', unit: 'hp', better: 'high', run: r => r.stats.maxHit },
 ];

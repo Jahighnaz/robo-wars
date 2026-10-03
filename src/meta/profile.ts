@@ -1,6 +1,7 @@
 // Player profile: name, lifetime counters, personal records, trophies and what
 // we know about crew-mates. Stored inside the save (the prototype ignores it).
 import type { RunResult } from '../sim/run';
+import { fam } from '../data';
 
 export interface ChallengeEntry { pid: string; name: string; score: number; t: number; kills: number; won: boolean; at: number }
 export interface Challenge { id: string; wk: string; seed: number; by: string; byName: string; at: number; entries: ChallengeEntry[] }
@@ -76,7 +77,10 @@ export function accumulate(p: Profile, r: RunResult): void {
   add(L, 'dist', r.stats.dist);
   add(L, 'time', r.t);
   if (r.won) { add(L, 'wins', 1); add(L, 'win_' + r.wk, 1); } else add(L, 'wrecks', 1);
-  for (const t in r.ks) add(L, 'k_' + t, r.ks[t]);
+  // kills count per tool family, so tier II/III tools keep feeding the same trophies
+  for (const t in r.ks) add(L, 'k_' + fam(t), r.ks[t]);
+  add(L, 'zapped', r.stats.zapped || 0);
+  if (r.crew && r.crew > 1) { add(L, 'coop', 1); if (r.won) add(L, 'coop_wins', 1); }
 }
 
 /** Challenge score: survive, kill, level up, and a big bonus for the apex. */

@@ -41,3 +41,8 @@ export function shotSnd(f: number): void {
 
 /** UI blip used by buttons. */
 export const uiSnd = (f = 520) => snd(f, 0.08, 'triangle', 0.025);
+
+/** For the music engine: the shared context and master bus (null until unlocked). */
+export function audioBus(): { ac: AudioContext; master: GainNode } | null {
+  return ac && master ? { ac, master } : null;
+}

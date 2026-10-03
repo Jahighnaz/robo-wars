@@ -4,6 +4,8 @@
 import type { RunResult } from '../sim/run';
 import type { Save } from '../persistence/save';
 import type { Profile } from './profile';
+import { B, fam } from '../data';
+import { famDmg } from './records';
 
 export type Tier = 'bronze' | 'silver' | 'gold' | 'platinum';
 
@@ -38,9 +40,9 @@ export const TROPHIES: TrophyDef[] = [
   { id: 'saw_coming', title: 'Saw That Coming', desc: '200 saw launcher kills in total.', tier: 'bronze', check: c => L(c, 'k_shotgun') >= 200 },
   { id: 'measure_twice', title: 'Measure Twice, Cut Once', desc: '100 laser cutter kills in total.', tier: 'bronze', check: c => L(c, 'k_laser') >= 100 },
   { id: 'reply_all', title: 'Reply All', desc: 'One arc welder discharge hits 5 enemies.', tier: 'silver', check: c => !!run(c) && c.r!.stats.maxChain >= 5 },
-  { id: 'sticky_situation', title: 'Sticky Situation', desc: '50 hot glue kills in one shift.', tier: 'bronze', check: c => !!run(c) && (c.r!.ks.flamer || 0) >= 50 },
+  { id: 'sticky_situation', title: 'Sticky Situation', desc: '50 hot glue kills in one shift.', tier: 'bronze', check: c => !!run(c) && Object.keys(c.r!.ks).reduce((a, k) => a + (fam(k) === 'flamer' ? c.r!.ks[k] : 0), 0) >= 50 },
   { id: 'plasma_screensaver', title: 'Plasma Screensaver', desc: '100 plasma cutter kills in total.', tier: 'bronze', check: c => L(c, 'k_mortar') >= 100 },
-  { id: 'full_toolbox', title: 'Full Toolbox', desc: 'Deal damage with all six tools in one shift.', tier: 'gold', check: c => !!run(c) && TOOLS.every(t => (c.r!.dmg[t] || 0) > 0) },
+  { id: 'full_toolbox', title: 'Full Toolbox', desc: 'Deal damage with all six tools in one shift.', tier: 'gold', check: c => !!run(c) && TOOLS.every(t => famDmg(c.r!, t) > 0) },
   { id: 'percussive', title: 'Percussive Maintenance', desc: 'Land a single hit of 150 or more.', tier: 'bronze', check: c => !!run(c) && c.r!.stats.maxHit >= 150 },
   // --- driving and surviving
   { id: 'donuts', title: 'Doing Donuts in the Parking Lot', desc: 'Spin 25 full turns in one shift.', tier: 'bronze', check: c => !!run(c) && c.r!.stats.spins >= 25 },
@@ -62,6 +64,16 @@ export const TROPHIES: TrophyDef[] = [
   { id: 'legacy_code', title: 'Legacy Code', desc: 'Push any sector into its second era.', tier: 'silver', check: c => Object.values(c.save.worlds).some(w => w.era >= 2) },
   { id: 'duct_tape', title: "If It Moves and Shouldn't", desc: 'Fabricate duct tape.', tier: 'bronze', check: c => c.event === 'craft:regen' },
   { id: 'circle_back', title: "Let's Circle Back on That", desc: 'Reroll your level-up cards.', tier: 'bronze', check: c => c.event === 'reroll' },
+  // --- defence, tiers, co-op
+  { id: 'not_today', title: 'Not Today, Thank You', desc: 'Zap 50 enemy projectiles in one shift.', tier: 'silver', check: c => !!run(c) && (c.r!.stats.zapped || 0) >= 50 },
+  { id: 'firewall', title: 'Human Firewall', desc: 'Zap 1,000 enemy projectiles in total.', tier: 'gold', check: c => L(c, 'zapped') >= 1000 },
+  { id: 'upgrade_path', title: 'Career Development Plan', desc: 'Fabricate your first tier II block.', tier: 'bronze', check: c => c.event?.startsWith('craft:') === true && B[c.event.slice(6)]?.tier === 2 },
+  { id: 'senior_partner', title: 'Senior Partner', desc: 'Fabricate a tier III block.', tier: 'silver', check: c => c.event?.startsWith('craft:') === true && B[c.event.slice(6)]?.tier === 3 },
+  { id: 'big_rig', title: 'Corner Office on Wheels', desc: 'Upgrade the cab to the big rig.', tier: 'gold', check: c => c.save.build.some(b => b.t === 'cab3') },
+  { id: 'mk_ten', title: 'Over-Over-Engineered', desc: 'Take any block to Mk X.', tier: 'gold', check: c => Object.values(c.save.up).some(v => v >= 9) },
+  { id: 'teamwork', title: 'Teamwork Makes the Dream Work', desc: 'Finish a co-op shift.', tier: 'bronze', check: c => !!run(c) && (c.r!.crew || 1) > 1 },
+  { id: 'carpool', title: 'Carpool Lane', desc: 'Destroy the apex in a co-op shift.', tier: 'silver', check: c => !!run(c) && (c.r!.crew || 1) > 1 && c.r!.won },
+  { id: 'intern_driving', title: 'Who Let the Intern Drive?', desc: 'Get wrecked three times in one co-op shift.', tier: 'bronze', hidden: true, check: c => !!run(c) && (c.r!.stats.downs || 0) >= 3 },
   // --- crew
   { id: 'team_building', title: 'Team Building Exercise', desc: 'Host or join a crew.', tier: 'bronze', check: c => c.event === 'crew' },
   { id: 'office_politics', title: 'Office Politics', desc: "Beat a crew-mate's score in a challenge.", tier: 'silver', check: c => c.event === 'beat_mate' },

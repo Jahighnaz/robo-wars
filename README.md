@@ -2,6 +2,13 @@
 
 A workshop-themed version of Scrap Evolution: Captain Charles rides his block-built truck as a pixel-art bobblehead, and every tool is from the shop: nailguns, saw launchers, hot glue guns, laser cutters, arc welders and plasma cutters. Sectors are the Junkyard, Cold Storage and the Foundry. Same rules and tuned numbers as Scrap Evolution; it keeps its own save (prototype save codes still import).
 
+### Progression, defence and music
+
+- **Tiers:** every block family has tier II and III versions (wheels, treads, air pads, plates, tape, batteries, magnets, repair, all six tools, the zapper) plus cab chassis upgrades (Pickup cab, Big rig cab). A tier unlocks when the previous tier reaches workshop Mk IV; workshop levels now go to Mk X; the grid expands to 11×11.
+- **Defence:** the Dust extractor / Spark gap / Force field emitter zaps enemy projectiles in range.
+- **Enemy fire:** bomb lobbers (landing-warning ring), rail spikes (aiming laser before the shot), homing rocket pods and scrap sprayers.
+- **Music:** "Shop Floor Fever", a procedural 8-bit arcade-techno soundtrack (menu, run and boss moods) generated live with Web Audio. Toggle in Settings or the pause menu.
+
 ### Crew, records and trophies
 
 - **Trophies:** 50 PlayStation-style trophies (bronze, silver, gold, one platinum) with office and workshop jokes, including hidden easter eggs. Hint: try tapping Captain Charles.
