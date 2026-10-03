@@ -2,6 +2,14 @@
 
 A workshop-themed version of Scrap Evolution: Captain Charles rides his block-built truck as a pixel-art bobblehead, and every tool is from the shop: nailguns, saw launchers, hot glue guns, laser cutters, arc welders and plasma cutters. Sectors are the Junkyard, Cold Storage and the Foundry. Same rules and tuned numbers as Scrap Evolution; it keeps its own save (prototype save codes still import).
 
+### Crew, records and trophies
+
+- **Trophies:** 50 PlayStation-style trophies (bronze, silver, gold, one platinum) with office and workshop jokes, including hidden easter eggs. Hint: try tapping Captain Charles.
+- **Records:** personal bests for serious and questionable KPIs (Workaholic, The Procrastinator, Speedrun to HR, ...).
+- **Crew:** one device taps *Start a crew* and shares the 4-letter code; others join. Everyone sees a combined records board, live news, and *shift challenges*: the same map with the stock truck, scored on kills, time, level and the apex.
+- Web pages cannot scan the local Wi-Fi, so devices find each other through PeerJS's free public broker (internet needed). Data then flows peer-to-peer, directly inside the Wi-Fi when possible. To use your own broker: `npx peerjs --port 9000` and open the game with `?broker=<host>:9000`.
+- Offline fallback: *Record cards* (a copyable code) add a crew-mate's records to your board.
+
 ---
 
 ## Scrap Evolution (base game)

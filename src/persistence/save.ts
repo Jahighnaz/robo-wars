@@ -3,6 +3,7 @@
 import { B, DTYPES, RES_KEYS, WORLDS, WORLD_KEYS, type DType, type ResKey } from '../data';
 import { compileSpecies, makeSpecies, type Species } from '../enemies/species';
 import type { BuildCell } from '../vehicle/vehicle';
+import { ensureProfile, newProfile, type Profile } from '../meta/profile';
 
 export interface WorldState {
   gen: number; tier: number; runs: number; wins: number; era: number;
@@ -23,6 +24,8 @@ export interface Save {
   runs: number; wins: number; muted: boolean; seenHelp: boolean; discovered: number;
   /** standalone-only additions; ignored by the prototype */
   settings?: Settings;
+  /** Charles Projects: player profile, records, trophies, crew */
+  profile?: Profile;
 }
 
 export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true });
@@ -47,6 +50,7 @@ export function defaultSave(): Save {
     ],
     gridR: 2, up: {}, worlds: {}, runs: 0, wins: 0, muted: false, seenHelp: false, discovered: 0,
     settings: defaultSettings(),
+    profile: newProfile(),
   };
   for (const k of WORLD_KEYS) s.worlds[k] = newWorldState(s, k);
   return s;
@@ -83,6 +87,7 @@ export function hydrate(s: Save): Save {
   if (!s.gridR) s.gridR = 2;
   for (const t in s.inv) if (!B[t]) delete s.inv[t];
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
+  s.profile = ensureProfile(s.profile);
   return s;
 }
 

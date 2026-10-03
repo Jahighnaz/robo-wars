@@ -56,9 +56,18 @@ export interface RunResult {
   won: boolean; t: number; kills: number; level: number; gained: Partial<Record<ResKey, number>>;
   report: string[]; wk: string; dmg: Record<string, number>; ks: Record<string, number>;
   peak: Record<string, number>; taken: number; newSpecies: number;
+  /** extra numbers for records and trophies */
+  stats: RunStats; loot: number; seed: number;
 }
 
-export interface RunOptions { seed?: number; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
+/** Things measured during a run that feed records and trophies. */
+export interface RunStats {
+  dist: number; idleT: number; hazardT: number; spins: number; mined: number; caches: number;
+  blocksLost: number; maxChain: number; crits: number; minCab: number; takenAt120: number;
+  maxHit: number; touched: boolean; firstTouchT: number;
+}
+
+export interface RunOptions { seed?: number; /** exhibition run: no loot banked, no evolution */ exhibition?: boolean; visual?: boolean; dmgNumbers?: boolean; viewW?: number; viewH?: number }
 
 export class Run {
   readonly save: Save;
@@ -81,6 +90,9 @@ export class Run {
   taken = 0; maxR = 30; zoom = 1; spawnD = 600; lavaT = 0; hazWarned = false; nextSp: Species | null = null;
   shake = 0;
   result: RunResult | null = null;
+  readonly seed: number;
+  readonly exhibition: boolean;
+  stats: RunStats = { dist: 0, idleT: 0, hazardT: 0, spins: 0, mined: 0, caches: 0, blocksLost: 0, maxChain: 0, crits: 0, minCab: 1, takenAt120: -1, maxHit: 0, touched: false, firstTouchT: -1 };
 
   V: Vehicle;
   E: Enemy[] = []; PB: Projectile[] = []; EBL: EnemyBullet[] = []; PK: Pickup[] = [];
@@ -99,7 +111,9 @@ export class Run {
     this.Wd = WORLDS[wk];
     this.visual = opts.visual ?? false;
     this.dmgNumbers = opts.dmgNumbers ?? false;
-    this.rng = new Rng(opts.seed ?? ((Date.now() ^ (this.W.gen * 7919) ^ 0x9e3779b9) >>> 0));
+    this.seed = opts.seed ?? ((Date.now() ^ (this.W.gen * 7919) ^ 0x9e3779b9) >>> 0);
+    this.exhibition = opts.exhibition ?? false;
+    this.rng = new Rng(this.seed);
     this.killsBy = {} as Record<DType, number>;
     for (const t of DTYPES) this.killsBy[t] = 0;
     this.loot = {} as Record<ResKey, number>;
@@ -152,18 +166,24 @@ export class Run {
     if (won) for (const p of this.PK) if (p.k !== 'xp') this.loot[p.k] += p.amt;
     const mult = won ? 1 : T.deathLootKeep;
     const gained: Partial<Record<ResKey, number>> = {};
+    let lootTotal = 0;
     for (const r of RES_KEYS) {
       const n = Math.floor(this.loot[r] * mult);
-      if (n > 0) { gained[r] = n; save.res[r] += n; }
+      lootTotal += n;
+      if (n > 0 && !this.exhibition) { gained[r] = n; save.res[r] += n; }
     }
-    W.runs++; save.runs++;
-    if (won) { W.wins++; save.wins++; }
-    const rep = evolveWorld(save, this.wk, this.killsBy, this.rng);
-    if (won) W.tier = Math.min(12, W.tier + 1);
+    let rep = { lines: ['Challenge runs are exhibition matches: no loot is banked and the sector does not evolve.'], children: 0 };
+    if (!this.exhibition) {
+      W.runs++; save.runs++;
+      if (won) { W.wins++; save.wins++; }
+      rep = evolveWorld(save, this.wk, this.killsBy, this.rng);
+      if (won) W.tier = Math.min(12, W.tier + 1);
+    }
     this.snd(won ? 660 : 140, 0.6, won ? 'triangle' : 'sawtooth', 0.05);
     this.result = {
       won, t: this.t, kills: this.kills, level: this.level, gained, report: rep.lines, wk: this.wk,
       dmg: { ...this.dmgBy }, ks: { ...this.killsSrc }, peak: { ...this.peak }, taken: this.taken, newSpecies: rep.children,
+      stats: { ...this.stats }, loot: lootTotal, seed: this.seed,
     };
   }
 
@@ -302,6 +322,8 @@ export class Run {
     this.credit(src, dmg, e);
     e.hp -= dmg; e.flash = 0.07; e.lastType = type;
     if (src) e.lastSrc = src;
+    if (crit) this.stats.crits++;
+    if (dmg > this.stats.maxHit) this.stats.maxHit = dmg;
     if (this.dmgNumbers) { e.dmgAcc += dmg; if (crit) e.crit = true; }
     if (e.hp <= 0) this.killEnemy(e);
   }
@@ -395,6 +417,7 @@ export class Run {
             if (this.FX.length < 600) this.burst(cur.x, cur.y, 3, '#e6dcff', 120);
           }
           this.hitEnemy(cur, dmg * (j === 0 ? 1 : T.teslaFalloff), 'electric', src);
+          if (j + 1 > this.stats.maxChain) this.stats.maxChain = j + 1;
           px = cur.x; py = cur.y;
           let nb: Enemy | null = null, nd = T.teslaJump;
           this.query(px, py, T.teslaJump, e => {
@@ -465,6 +488,7 @@ export class Run {
     if (b.t === 'cab') { this.end(false); return; }
     const keep = reachable(V);
     const lost = V.list.filter(o => !keep.has(o));
+    this.stats.blocksLost += 1 + lost.length;
     if (lost.length) {
       for (const o of lost) { o.dead = true; V.map.delete(bkey(o.x, o.y)); this.debris(o); }
       V.list = V.list.filter(o => keep.has(o));
@@ -508,13 +532,21 @@ export class Run {
     // movement
     const mag = Math.min(1, Math.hypot(this.joy.x, this.joy.y));
     let fwd = 0;
+    const st = this.stats;
     if (mag > 0.05) {
+      if (!st.touched) { st.touched = true; st.firstTouchT = this.t; }
       const ta = Math.atan2(this.joy.y, this.joy.x);
       const da = angDiff(V.h, ta);
       const tr = s.turn * dt;
-      V.h += clamp(da, -tr, tr);
+      const turn = clamp(da, -tr, tr);
+      V.h += turn;
+      st.spins += Math.abs(turn) / TAU;
       fwd = Math.max(0.2, Math.cos(angDiff(V.h, ta)));
-    }
+    } else st.idleT += dt;
+    if (onHaz) st.hazardT += dt;
+    if (st.takenAt120 < 0 && this.t >= 120) st.takenAt120 = this.taken;
+    const cabB = V.map.get(bkey(0, 0));
+    if (cabB) st.minCab = Math.min(st.minCab, cabB.hp / cabB.max);
     let spd = s.speed * mag * fwd;
     let grip = 6;
     if (onHaz && haz === 'mud') spd *= 0.42 + 0.58 * s.trackFrac;
@@ -524,6 +556,7 @@ export class Run {
     V.vy += (Math.sin(V.h) * spd - V.vy) * k;
     V.x = clamp(V.x + V.vx * dt, -ARENA + 30, ARENA - 30);
     V.y = clamp(V.y + V.vy * dt, -ARENA + 30, ARENA - 30);
+    st.dist += Math.hypot(V.vx, V.vy) * dt;
 
     // block world positions
     const a = V.h + Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a);
@@ -536,7 +569,7 @@ export class Run {
     // hazards
     if (onHaz && haz === 'lava') {
       this.lavaT += dt;
-      if (!this.hazWarned) { this.hazWarned = true; this.toast('Lava burns your blocks. Hover pads float over it.', 2400); }
+      if (!this.hazWarned) { this.hazWarned = true; this.toast(this.Wd.hazardText, 2400); }
       if (this.lavaT >= 0.25) {
         this.lavaT = 0;
         const dmg = 2.5 * (1 - s.hoverFrac);
@@ -679,6 +712,7 @@ export class Run {
       if (Math.hypot(dp.x - V.x, dp.y - V.y) < 44 + pr * 0.5) {
         dp.prog += dt / 1.6;
         if (dp.prog >= 1) {
+          if (dp.cache) this.stats.caches++; else this.stats.mined++;
           for (let j = 0; j < dp.amt; j++) {
             const an = r.range(0, TAU);
             this.PK.push({ x: dp.x, y: dp.y, k: dp.res, amt: 1, vx: Math.cos(an) * r.range(60, 160), vy: Math.sin(an) * r.range(60, 160) });

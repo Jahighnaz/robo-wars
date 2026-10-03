@@ -15,6 +15,10 @@ import {
   type Block, type BuildCell,
 } from '../vehicle/vehicle';
 import { $, el, gem } from './dom';
+import { accumulate, addChallengeEntry, challengeScore, exportCard, importCard, publicProfile, type Challenge, type Profile } from '../meta/profile';
+import { applyRun, fmtRecord, standings, type RecordDef } from '../meta/records';
+import { evaluate, TIER_ORDER, TROPHIES, type TrophyDef } from '../meta/trophies';
+import { cleanCode, Crew, newCrewCode, type CrewMsg } from '../net/crew';
 
 type Mode = 'hub' | 'garage' | 'run' | 'cards' | 'place' | 'pause' | 'debrief' | 'menu';
 const STEP = 1 / 60;
@@ -42,12 +46,22 @@ export class App {
   private gSel: BuildCell | null = null;
   private gTab: 'workshop' | 'craft' = 'workshop';
   private gFresh: BuildCell | null = null;
+  // social
+  private crew: Crew;
+  private screen = '';
+  private activeChallenge: Challenge | null = null;
+  private pauseAt = 0;
+  private trophyQueue: TrophyDef[] = [];
+  private trophyShowing = false;
+  private crewWasOnline = false;
+  private joinCode = '';
 
   constructor(save: Save) {
     this.save = save;
     setMuted(save.muted);
     const cv = $<HTMLCanvasElement>('cv');
     this.renderer = new Renderer3D(cv, $<HTMLCanvasElement>('ov'));
+    this.crew = new Crew(() => publicProfile(this.profile), m => this.onCrewMsg(m), () => this.onCrewChange());
     this.joy = new Joystick(cv, () => this.mode === 'run', unlockAudio);
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onResize(), 200));
@@ -106,7 +120,7 @@ export class App {
       if (run.over && run.result && this.endTimer < 0 && this.mode !== 'debrief') this.endTimer = run.won ? 1.0 : 1.3;
       if (this.endTimer >= 0) {
         this.endTimer -= dt;
-        if (this.endTimer < 0) { this.store(); this.showDebrief(run.result!); }
+        if (this.endTimer < 0) this.finishRun(run.result!);
       }
     }
     const V = run?.V;
@@ -188,18 +202,30 @@ export class App {
     this.ui.scrollTop = 0;
   }
 
-  private resume() { this.acc = 0; this.setMode('run'); }
+  private resume() {
+    if (this.pauseAt && performance.now() - this.pauseAt > 120000) this.award('long_pause');
+    this.pauseAt = 0;
+    this.acc = 0;
+    this.setMode('run');
+  }
 
-  private startRun(wk: string) {
+  private startRun(wk: string, challenge: Challenge | null = null) {
     unlockAudio();
-    this.run = new Run(this.save, wk, { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh });
+    this.activeChallenge = challenge;
+    const opts = { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh };
+    if (challenge) {
+      // fair fight: everyone drives the same stock truck on the same map, and nothing is banked
+      const scratch = defaultSave();
+      scratch.settings = this.save.settings;
+      this.run = new Run(scratch, wk, { ...opts, seed: challenge.seed, exhibition: true });
+    } else this.run = new Run(this.save, wk, opts);
     this.renderer.configureSpawn(this.run);
     this.snapshot(this.run);
     this.acc = 0; this.levelFlash = -1; this.endTimer = -1;
     this.setMode('run');
     this.updateHUD();
     const W = this.run.W;
-    this.toast(WORLDS[wk].name.toUpperCase() + ' · TIER ' + W.tier + ' · GEN ' + W.gen, 2600);
+    this.toast(challenge ? 'CHALLENGE · ' + WORLDS[wk].name.toUpperCase() + ' · STOCK TRUCK' : WORLDS[wk].name.toUpperCase() + ' · TIER ' + W.tier + ' · GEN ' + W.gen, 2600);
     if (!this.save.seenHelp) { this.save.seenHelp = true; this.store(); }
   }
 
@@ -279,16 +305,18 @@ export class App {
       el('div', { class: 'hub-head' },
         el('div', null,
           el('div', { class: 'kicker' }, 'Build · Survive · Tinker'),
-          el('h1', { class: 'logo', 'data-text': 'CHARLES//PROJECTS' }, 'CHARLES', el('span', { class: 'slash' }, '//'), el('span', { class: 'evo' }, 'PROJECTS')),
+          el('h1', { class: 'logo', 'data-text': 'CHARLES//PROJECTS' }, 'CHARLES', el('span', { class: 'slash', onclick: () => this.egg('slash') }, '//'), el('span', { class: 'evo' }, 'PROJECTS')),
           el('div', { class: 'stat', style: 'font-size:12px;display:inline-block;margin-top:14px' }, 'RUNS ', el('b', null, String(s.runs)), ' · WINS ', el('b', null, String(s.wins)), ' · SPECIES FOUND ', el('b', null, String(s.discovered)))),
         el('div', { class: 'captain' },
-          el('img', { src: 'charles/portrait.png', alt: 'Captain Charles', draggable: 'false' }),
-          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, 'Charles')))),
+          el('img', { src: 'charles/portrait.png', alt: 'Captain Charles', draggable: 'false', onclick: (e: Event) => this.tapCharles(e.currentTarget as HTMLElement) }),
+          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, 'Charles'), el('div', { class: 'meta', style: 'margin-top:6px' }, 'Driver: ', el('b', null, this.profile.name))))),
       el('p', { class: 'sub' }, "Captain Charles drives a workshop truck built from blocks. Bolt on nailguns, saw launchers, hot glue, laser and plasma cutters, survive five minutes of waves and scrap the apex. Every sector evolves against the way you build."),
       this.resChips(s.res),
       el('div', { class: 'nav' },
         el('button', { class: 'btn', onclick: () => { uiSnd(); this.gSel = null; this.gTool = null; this.showGarage(); } }, el('span', { html: iconSvg('cab', 'currentColor', 18) }), 'Garage'),
         el('button', { class: 'btn ghost', onclick: () => this.showHelp() }, 'How to play'),
+        el('button', { class: 'btn', onclick: () => this.showCrew() }, 'Crew & records'),
+        el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies ' + this.trophyCount() + '/' + TROPHIES.length),
         el('button', { class: 'btn ghost', onclick: () => this.showSettings() }, 'Settings & backup')),
       el('h2', null, 'Choose a sector'),
       el('div', { class: 'worlds' }, worlds)));
@@ -380,6 +408,7 @@ export class App {
     } else {
       this.gSel = null;
     }
+    this.award('garage');
     this.showGarage(true);
   }
 
@@ -392,6 +421,7 @@ export class App {
     if (removed.length) this.toast(removed.length + ' disconnected block' + (removed.length > 1 ? 's' : '') + ' returned to storage', 1800);
     this.gSel = null;
     this.store();
+    this.award('garage');
     this.showGarage(true);
   }
 
@@ -473,7 +503,7 @@ export class App {
         el('span', { class: 'sw', style: `--bc:${B[t].color}`, html: iconSvg(t, B[t].color, 24) }),
         el('div', { class: 'nm' }, B[t].name, s.inv[t] ? el('span', { class: 'stored' }, s.inv[t] + ' STORED') : null, el('div', { class: 'd' }, B[t].desc), this.costChips(B[t].cost || {})),
         el('button', { class: 'btn sm', disabled: !this.canAfford(B[t].cost || {}), onclick: () => {
-          this.pay(B[t].cost || {}); s.inv[t] = (s.inv[t] || 0) + 1; this.gTool = t; this.gSel = null; this.store(); snd(520, 0.1, 'triangle', 0.03);
+          this.pay(B[t].cost || {}); s.inv[t] = (s.inv[t] || 0) + 1; this.gTool = t; this.gSel = null; this.store(); snd(520, 0.1, 'triangle', 0.03); this.award('craft:' + t);
           this.toast(B[t].name + ' fabricated. Tap a glowing slot to place it.', 1800); this.showGarage(true);
         } }, 'Fabricate'))));
 
@@ -515,7 +545,7 @@ export class App {
         el('div', { class: 'kind' }, c.label), el('div', { class: 'ttl' }, c.title), el('div', { class: 'dsc' }, c.desc),
         c.kind === 'block' ? el('div', { class: 'foot' }, 'BOLTED ON FOR THIS RUN') : null))),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:18px' },
-        el('button', { class: 'btn ghost', disabled: run.reroll <= 0, onclick: () => { run.reroll--; uiSnd(); this.showCards(); } }, 'Reroll · ' + run.reroll + ' left'))));
+        el('button', { class: 'btn ghost', disabled: run.reroll <= 0, onclick: () => { run.reroll--; uiSnd(); this.award('reroll'); this.showCards(); } }, 'Reroll · ' + run.reroll + ' left'))));
     snd(740, 0.18, 'triangle', 0.04);
   }
 
@@ -567,6 +597,7 @@ export class App {
   private showPause() {
     const run = this.run;
     if (this.mode !== 'run' || !run) return;
+    if (!this.pauseAt) this.pauseAt = performance.now();
     this.setMode('pause');
     const toggleBtn = (label: string, on: boolean, flip: () => void) =>
       el('button', { class: 'btn sm ghost', onclick: () => { flip(); this.store(); this.setMode('run'); this.showPause(); } }, label + ': ' + (on ? 'on' : 'off'));
@@ -577,7 +608,7 @@ export class App {
         el('p', { class: 'sub', style: 'margin:8px auto 18px' }, fmtTime(run.t) + ' survived · level ' + run.level + ' · ' + run.kills + ' kills')),
       el('div', { class: 'row', style: 'justify-content:center' },
         el('button', { class: 'btn primary big', onclick: () => this.resume() }, 'Resume'),
-        el('button', { class: 'btn danger', onclick: () => { run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, 'Abandon (keep half)')),
+        el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, run.exhibition ? 'Abandon challenge' : 'Abandon (keep half)')),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
         toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
         toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
@@ -587,31 +618,337 @@ export class App {
   }
 
   // ================================================================ debrief
-  private showDebrief(r: RunResult) {
+  private finishRun(r: RunResult) {
+    const p = this.profile;
+    const ch = this.activeChallenge;
+    accumulate(p, r);
+    const improved = applyRun(p, r, !!ch);
+    let score = 0;
+    if (ch) {
+      score = challengeScore(r);
+      const entry = { pid: p.id, name: p.name, score, t: r.t, kills: r.kills, won: r.won, at: Date.now() };
+      const local = p.challenges.find(c => c.id === ch.id) || ch;
+      addChallengeEntry(local, entry);
+      this.crew.send({ k: 'entry', cid: ch.id, e: entry });
+      if (local.entries.some(e => e.pid !== p.id && e.score < score)) this.award('beat_mate');
+    }
+    const unlocked = this.award(undefined, r, !!ch);
+    const sector = WORLDS[r.wk].name;
+    this.crew.send({ k: 'news', from: p.id, text: ch
+      ? `${p.name} scored ${score.toLocaleString('en')} in the ${sector} challenge`
+      : r.won ? `${p.name} just destroyed the apex in the ${sector}!` : `${p.name} got wrecked in the ${sector} after ${fmtTime(r.t)}` });
+    this.store();
+    this.showDebrief(r, improved, unlocked, ch, score);
+  }
+
+  private showDebrief(r: RunResult, improved: RecordDef[] = [], unlocked: TrophyDef[] = [], ch: Challenge | null = null, score = 0) {
     this.setMode('debrief');
     const keys = Object.keys(r.gained);
     const Wd = WORLDS[r.wk];
     const big = (v: string, l: string, c?: string) => el('div', { class: 'bigstat' }, el('div', { class: 'v', style: c ? `color:${c}` : '' }, v), el('div', { class: 'l' }, l));
+    const board = ch ? (this.profile.challenges.find(c => c.id === ch.id) || ch) : null;
     this.show('solid', el('div', { class: 'wrap screen-in' },
-      el('div', { class: 'kicker', style: `color:${Wd.theme.accent}` }, Wd.name + ' · debrief'),
+      el('div', { class: 'kicker', style: `color:${Wd.theme.accent}` }, Wd.name + (ch ? ' · challenge result' : ' · debrief')),
       el('h1', { style: `color:${r.won ? 'var(--acid)' : 'var(--red)'};text-shadow:0 0 26px ${r.won ? 'rgba(245,255,59,.5)' : 'rgba(255,46,99,.5)'}` }, r.won ? 'APEX DESTROYED' : 'TRUCK WRECKED'),
-      el('p', { class: 'sub', style: 'margin-top:10px' }, r.won ? 'All loot kept. The world grows one tier stronger.' : 'Half of the loot was salvaged.'),
+      el('p', { class: 'sub', style: 'margin-top:10px' }, ch ? 'Challenge runs use the stock truck and bank nothing. Only the score counts.' : r.won ? 'All loot kept. The world grows one tier stronger.' : 'Half of the loot was salvaged.'),
       el('div', { class: 'bigstats' },
+        ch ? big(score.toLocaleString('en'), 'CHALLENGE SCORE', 'var(--acid)') : null,
         big(fmtTime(r.t), 'SURVIVED'), big(String(r.level), 'LEVEL'), big(String(r.kills), 'KILLS'),
         big(Math.round(r.taken).toLocaleString('en'), 'DAMAGE TAKEN', 'var(--red)'),
         r.newSpecies ? big('+' + r.newSpecies, 'NEW SPECIES', 'var(--mag)') : null),
-      el('h2', null, 'Loot banked'),
-      keys.length ? this.resChips(r.gained, true) : el('p', { class: 'sub' }, 'Nothing salvaged this time.'),
+      board ? el('h2', null, 'Challenge leaderboard') : null,
+      board ? this.challengeTable(board) : null,
+      unlocked.length ? el('h2', null, 'Trophies unlocked') : null,
+      unlocked.length ? el('div', { class: 'trophies' }, unlocked.map(t => this.trophyCard(t, true))) : null,
+      improved.length ? el('h2', null, 'New personal records') : null,
+      improved.length ? el('div', { class: 'log terminal' }, improved.map((d, i) => el('div', { style: `animation-delay:${0.1 + i * 0.1}s` },
+        el('b', null, d.label + ': ' + fmtRecord(d, this.profile.best[d.id])), ' · title: "' + d.title + '"'))) : null,
+      ch ? null : el('h2', null, 'Loot banked'),
+      ch ? null : keys.length ? this.resChips(r.gained, true) : el('p', { class: 'sub' }, 'Nothing salvaged this time.'),
       el('h2', null, 'Damage report'),
       damageReport(r.dmg, r.ks, r.peak, r.t),
-      el('h2', null, 'How ' + Wd.name + ' evolved'),
-      el('div', { class: 'log terminal' }, r.report.length ? r.report.map((l, i) => el('div', { style: `animation-delay:${0.15 + i * 0.12}s` }, l)) : el('div', null, 'No changes.')),
+      ch ? null : el('h2', null, 'How ' + Wd.name + ' evolved'),
+      ch ? null : el('div', { class: 'log terminal' }, r.report.length ? r.report.map((l, i) => el('div', { style: `animation-delay:${0.15 + i * 0.12}s` }, l)) : el('div', null, 'No changes.')),
       el('div', { class: 'row', style: 'margin-top:22px' },
-        el('button', { class: 'btn primary big', onclick: () => { this.gSel = null; this.gTool = null; this.showGarage(); } }, 'Garage'),
-        el('button', { class: 'btn big', onclick: () => this.startRun(r.wk) }, 'Run again'),
+        ch ? el('button', { class: 'btn primary big', onclick: () => this.startRun(ch.wk, ch) }, 'Try again') : el('button', { class: 'btn primary big', onclick: () => { this.gSel = null; this.gTool = null; this.showGarage(); } }, 'Garage'),
+        ch ? el('button', { class: 'btn big', onclick: () => this.showCrew() }, 'Crew & records') : el('button', { class: 'btn big', onclick: () => this.startRun(r.wk) }, 'Run again'),
         el('button', { class: 'btn ghost', onclick: () => this.showHub() }, 'Sector map'))));
   }
+
+  // ================================================================ trophies & records
+  private get profile(): Profile { return this.save.profile!; }
+  private trophyCount() { return Object.keys(this.profile.trophies).length; }
+
+  /** Check trophies; queue toasts for new ones; share the new profile with the crew. */
+  private award(event?: string, r?: RunResult, challenge = false): TrophyDef[] {
+    const got = evaluate({ save: this.save, p: this.profile, r, challenge, event, now: new Date() });
+    if (got.length || r) {
+      this.store();
+      this.crew.send({ k: 'profile', p: publicProfile(this.profile) });
+    }
+    for (const t of got) this.trophyQueue.push(t);
+    this.pumpTrophies();
+    return got;
+  }
+
+  private pumpTrophies() {
+    if (this.trophyShowing || !this.trophyQueue.length) return;
+    const t = this.trophyQueue.shift()!;
+    this.trophyShowing = true;
+    const box = $('trophy');
+    box.className = 'trophy-toast on tier-' + t.tier;
+    box.replaceChildren(el('div', { class: 'tt-cup', html: CUP }), el('div', null, el('div', { class: 'tt-kind' }, (t.hidden ? 'Easter egg · ' : '') + t.tier + ' trophy unlocked'), el('div', { class: 'tt-title' }, t.title)));
+    snd(t.tier === 'platinum' ? 1046 : t.tier === 'gold' ? 880 : 740, 0.35, 'triangle', 0.045);
+    setTimeout(() => snd(1175, 0.3, 'triangle', 0.035), 140);
+    setTimeout(() => { box.classList.remove('on'); setTimeout(() => { this.trophyShowing = false; this.pumpTrophies(); }, 350); }, 3200);
+  }
+
+  private egg(kind: 'slash' | 'tap_charles') {
+    const e = this.profile.eggs;
+    e[kind] = (e[kind] || 0) + 1;
+    this.award(kind);
+    this.store();
+  }
+
+  private tapCharles(img: HTMLElement) {
+    const n = (this.profile.eggs.tap_charles || 0) % CHARLES_SAYS.length;
+    this.toast('Charles: "' + CHARLES_SAYS[n] + '"', 2600);
+    img.classList.remove('boing'); void img.offsetWidth; img.classList.add('boing');
+    snd(300 + Math.random() * 200, 0.12, 'square', 0.03);
+    this.egg('tap_charles');
+  }
+
+  private trophyCard(t: TrophyDef, fresh = false) {
+    const got = this.profile.trophies[t.id];
+    const secret = t.hidden && !got;
+    return el('div', { class: 'trophy tier-' + t.tier + (got ? ' got' : ' locked') + (fresh ? ' fresh' : '') },
+      el('div', { class: 'tcup', html: CUP }),
+      el('div', { class: 'tbody' },
+        el('div', { class: 'tkind' }, (t.hidden ? 'Easter egg · ' : '') + t.tier),
+        el('div', { class: 'ttitle' }, secret ? '???' : t.title),
+        el('div', { class: 'tdesc' }, secret ? 'A hidden trophy. Keep poking around.' : t.desc),
+        got ? el('div', { class: 'tdate' }, 'Unlocked ' + new Date(got).toLocaleDateString()) : null));
+  }
+
+  private showTrophies() {
+    uiSnd();
+    this.setMode('menu');
+    this.screen = 'trophies';
+    const has = (t: TrophyDef) => (this.profile.trophies[t.id] ? 0 : 1);
+    const sorted = [...TROPHIES].sort((a, b) => has(a) - has(b) || Number(!!a.hidden) - Number(!!b.hidden) || TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
+    const count = (tier: string) => TROPHIES.filter(t => t.tier === tier && this.profile.trophies[t.id]).length + '/' + TROPHIES.filter(t => t.tier === tier).length;
+    const got = this.trophyCount();
+    this.show('solid', el('div', { class: 'wrap screen-in' },
+      el('div', { class: 'row' },
+        el('div', null, el('div', { class: 'kicker' }, 'Trophy cabinet'), el('h1', null, 'Trophies')),
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back')),
+      el('div', { class: 'tprog' }, el('div', { class: 'tprog-bar' }, el('i', { style: `width:${(got / TROPHIES.length) * 100}%` })),
+        el('div', { class: 'statline', style: 'margin-top:10px' },
+          el('span', { class: 'stat' }, 'TOTAL ', el('b', null, got + '/' + TROPHIES.length)),
+          ...(['platinum', 'gold', 'silver', 'bronze'] as const).map(t => el('span', { class: 'stat tier-' + t }, t.toUpperCase() + ' ', el('b', null, count(t)))))),
+      el('div', { class: 'trophies', style: 'margin-top:18px' }, sorted.map(t => this.trophyCard(t)))));
+  }
+
+  private challengeTable(c: Challenge) {
+    if (!c.entries.length) return el('p', { class: 'sub' }, 'No scores yet. Be the first.');
+    return el('div', { class: 'log rep' }, c.entries.map((e, i) => el('div', { class: 'crow-line' + (e.pid === this.profile.id ? ' me' : '') },
+      el('span', { class: 'rank' }, '#' + (i + 1)),
+      el('span', { class: 'nm' }, e.name + (i === 0 ? ' · Top of the League' : i === c.entries.length - 1 && c.entries.length > 2 ? ' · Participation Award' : '')),
+      el('span', { class: 'num' }, el('b', null, e.score.toLocaleString('en')), ' · ' + fmtTime(e.t) + ' · ' + e.kills + ' kills' + (e.won ? ' · apex' : '')))));
+  }
+
+  // ================================================================ crew
+  private onCrewChange() {
+    const online = this.crew.status === 'online';
+    if (online && !this.crewWasOnline) {
+      this.profile.crewCode = this.crew.code;
+      this.award('crew');
+      this.store();
+    }
+    this.crewWasOnline = online;
+    this.rememberMates();
+    if (this.mode === 'menu' && this.screen === 'crew') this.showCrew(true);
+  }
+
+  private rememberMates() {
+    const me = this.profile.id;
+    for (const [id, p] of this.crew.members) if (id !== me) this.profile.mates[id] = p;
+  }
+
+  private mergeChallenge(c: Challenge) {
+    const list = this.profile.challenges;
+    const ex = list.find(x => x.id === c.id);
+    if (ex) { for (const e of c.entries || []) addChallengeEntry(ex, e); return false; }
+    list.unshift({ ...c, entries: [...(c.entries || [])] });
+    list.sort((a, b) => b.at - a.at);
+    list.length = Math.min(list.length, 10);
+    return true;
+  }
+
+  private onCrewMsg(m: CrewMsg) {
+    const me = this.profile;
+    if (m.k === 'hello' && this.crew.isHost) {
+      // bring the newcomer up to speed on recent challenges
+      for (const c of me.challenges.slice(0, 3)) this.crew.send({ k: 'challenge', c });
+      this.toast(m.p.name + ' clocked in to the crew', 2200);
+    } else if (m.k === 'news') {
+      if (m.from !== me.id) this.toast(m.text, 3000);
+    } else if (m.k === 'challenge') {
+      if (this.mergeChallenge(m.c) && m.c.by !== me.id) this.toast(`${m.c.byName} started a challenge in the ${WORLDS[m.c.wk]?.name || 'sector'}. Open Crew & records to play.`, 3600);
+    } else if (m.k === 'entry') {
+      const c = me.challenges.find(x => x.id === m.cid);
+      if (c) {
+        addChallengeEntry(c, m.e);
+        const mine = c.entries.find(e => e.pid === me.id);
+        if (mine && m.e.pid !== me.id && mine.score > m.e.score) this.award('beat_mate');
+      }
+    }
+    this.rememberMates();
+    this.store();
+    if (this.mode === 'menu' && this.screen === 'crew') this.showCrew(true);
+  }
+
+  private startChallenge(wk: string) {
+    const p = this.profile;
+    const c: Challenge = { id: Math.random().toString(36).slice(2, 10), wk, seed: (Math.random() * 2 ** 31) >>> 0, by: p.id, byName: p.name, at: Date.now(), entries: [] };
+    this.mergeChallenge(c);
+    this.crew.send({ k: 'challenge', c });
+    this.store();
+    uiSnd(660);
+    this.toast('Challenge posted. Everyone plays the same map with the stock truck.', 2600);
+    this.showCrew(true);
+  }
+
+  private showCrew(keepScroll = false) {
+    this.setMode('menu');
+    this.screen = 'crew';
+    const st = keepScroll ? this.ui.scrollTop : 0;
+    const p = this.profile, crew = this.crew;
+    const me = publicProfile(p);
+    const mates = Object.values(p.mates);
+
+    // --- you
+    const nameIn = el('input', { class: 'txt', maxlength: '24', value: p.name, 'aria-label': 'Your name' }) as HTMLInputElement;
+    const you = el('div', { class: 'panel' },
+      el('h3', null, 'Your badge'),
+      el('div', { class: 'row', style: 'margin-top:10px' }, nameIn,
+        el('button', { class: 'btn sm', onclick: () => {
+          const v = nameIn.value.trim().slice(0, 24);
+          if (!v) return;
+          p.name = v; this.store(); this.award('rename'); this.toast('Name tag updated.', 1400); this.showCrew(true);
+        } }, 'Save name')),
+      el('div', { class: 'statline', style: 'margin-top:12px' },
+        el('span', { class: 'stat' }, 'SHIFTS ', el('b', null, String(p.life.runs || 0))),
+        el('span', { class: 'stat' }, 'APEXES ', el('b', null, String(p.life.wins || 0))),
+        el('span', { class: 'stat' }, 'KILLS ', el('b', null, String(p.life.kills || 0))),
+        el('span', { class: 'stat' }, 'TROPHIES ', el('b', null, this.trophyCount() + '/' + TROPHIES.length))));
+
+    // --- crew connection
+    const codeIn = el('input', { class: 'txt code', maxlength: '6', placeholder: 'CODE', value: this.joinCode, 'aria-label': 'Crew code', autocapitalize: 'characters' }) as HTMLInputElement;
+    codeIn.addEventListener('input', () => { this.joinCode = cleanCode(codeIn.value); });
+    const online = crew.status === 'online';
+    const statusLine = crew.status === 'connecting' ? el('p', { class: 'sub' }, 'Connecting…')
+      : crew.status === 'error' ? el('p', { class: 'sub', style: 'color:var(--red)' }, crew.error)
+      : !online ? el('p', { class: 'sub' }, 'Start a crew on one device and share the code. Everyone else joins with it. Phones and iPads on the same Wi-Fi then talk to each other directly.') : null;
+    const members = online ? [...crew.members.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
+    const crewPanel = el('div', { class: 'panel', style: '--acc:var(--mag)' },
+      el('h3', null, 'Crew'),
+      online ? el('div', { class: 'crewcode' }, el('div', { class: 'kicker' }, crew.isHost ? 'You host crew' : 'Crew code'), el('div', { class: 'code-big' }, crew.code)) : null,
+      statusLine,
+      online ? el('div', { class: 'members' }, members.map(m => el('div', { class: 'member' + (crew.online.has(m.id) ? ' on' : '') },
+        el('span', { class: 'dot' }), m.name + (m.id === p.id ? ' (you)' : '') + (m.id === crew.hostId ? ' · host' : ''),
+        el('span', { class: 'mstat' }, (m.trophies?.length || 0) + ' trophies')))) : null,
+      el('div', { class: 'row', style: 'margin-top:12px' },
+        online || crew.status === 'connecting'
+          ? el('button', { class: 'btn sm ghost', onclick: () => { crew.leave(); this.showCrew(true); } }, 'Leave crew')
+          : [
+            el('button', { class: 'btn sm', onclick: () => { void crew.host(newCrewCode()); this.showCrew(true); } }, 'Start a crew'),
+            codeIn,
+            el('button', { class: 'btn sm', onclick: () => { const c = cleanCode(codeIn.value); if (c.length >= 4) { this.joinCode = c; void crew.join(c); this.showCrew(true); } } }, 'Join'),
+            p.crewCode ? el('button', { class: 'btn sm ghost', onclick: () => { void crew.join(p.crewCode!); this.showCrew(true); } }, 'Rejoin ' + p.crewCode) : null,
+          ]),
+      el('p', { class: 'hint', style: 'text-align:left' }, 'Devices find each other through a free connection broker, so everyone needs internet. On the same Wi-Fi the game data then goes directly between devices.'));
+
+    // --- challenges
+    const chal = el('div', { class: 'panel', style: '--acc:var(--acid)' },
+      el('h3', null, 'Shift challenges'),
+      el('p', { class: 'sub', style: 'margin:6px 0 10px' }, 'Same map, same stock truck, nothing banked. Score = kills × 10 + seconds × 2 + level × 25, plus 1,000 for the apex.' + (online ? ' Posting a challenge sends it to the whole crew.' : ' Join a crew to compete; you can still practise solo.')),
+      el('div', { class: 'row' }, WORLD_KEYS.map(k => el('button', { class: 'btn sm', style: `--cut:9px;color:${WORLDS[k].theme.accent}`, onclick: () => this.startChallenge(k) }, 'New: ' + WORLDS[k].name))),
+      p.challenges.slice(0, 5).map(c => el('div', { class: 'chal' },
+        el('div', { class: 'row' },
+          el('div', null, el('b', null, WORLDS[c.wk]?.name || c.wk), el('div', { class: 'meta' }, 'Posted by ' + c.byName + ' · ' + new Date(c.at).toLocaleString())),
+          el('div', { class: 'spacer' }),
+          el('button', { class: 'btn sm primary', onclick: () => this.startRun(c.wk, c) }, 'Play')),
+        this.challengeTable(c))));
+
+    // --- records board
+    const board = standings(me, mates);
+    const recCard = (s: ReturnType<typeof standings>[number]) => el('div', { class: 'rec ' + s.def.kind + (s.holder && s.holder.id === p.id ? ' mine' : '') },
+      el('div', { class: 'rlabel' }, s.def.label),
+      el('div', { class: 'rtitle' }, s.def.title),
+      el('div', { class: 'rholder' }, s.holder ? el('span', null, el('b', null, s.holder.name), ' · ' + fmtRecord(s.def, s.value!)) : el('span', null, 'Unclaimed. Go get it.')),
+      s.mine !== null && !(s.holder && s.holder.id === p.id) ? el('div', { class: 'rmine' }, 'You: ' + fmtRecord(s.def, s.mine)) : null);
+    const records = el('div', null,
+      el('h2', null, 'Records · serious'),
+      el('div', { class: 'recs' }, board.filter(s => s.def.kind === 'serious').map(recCard)),
+      el('h2', null, 'Records · questionable'),
+      el('div', { class: 'recs' }, board.filter(s => s.def.kind === 'fun').map(recCard)),
+      el('p', { class: 'hint', style: 'text-align:left' }, mates.length ? `Board includes ${mates.length} crew-mate${mates.length > 1 ? 's' : ''} (last known records).` : 'Only your records so far. Join a crew or swap record cards to compare.'));
+
+    // --- offline record cards
+    const myCard = el('textarea', { readonly: 'true', 'aria-label': 'Your record card' }) as HTMLTextAreaElement;
+    myCard.value = exportCard(p);
+    const theirs = el('textarea', { placeholder: 'Paste a crew-mate\'s record card here', 'aria-label': 'Crew-mate record card' }) as HTMLTextAreaElement;
+    const cardMsg = el('p', { class: 'sub' }, 'No internet? Swap record cards instead: send yours by AirDrop or Messages, paste theirs here.');
+    const cards = el('details', { class: 'panel' },
+      el('summary', null, 'Record cards (works offline)'),
+      cardMsg,
+      myCard,
+      el('div', { class: 'row', style: 'margin:10px 0 16px' },
+        el('button', { class: 'btn sm', onclick: () => { myCard.select(); navigator.clipboard?.writeText(myCard.value).then(() => { cardMsg.textContent = 'Your card is on the clipboard.'; }, () => { cardMsg.textContent = 'Select the text and copy it.'; }); } }, 'Copy my card')),
+      theirs,
+      el('div', { class: 'row', style: 'margin-top:10px' },
+        el('button', { class: 'btn sm', onclick: () => {
+          try {
+            const c = importCard(theirs.value);
+            if (c.id === p.id) throw new Error('that is your own card');
+            p.mates[c.id] = c; this.store(); this.toast(c.name + ' added to your board', 1800); this.showCrew(true);
+          } catch (e) { cardMsg.textContent = 'Could not add the card: ' + (e as Error).message + '.'; }
+        } }, 'Add to my board')),
+      mates.length ? el('div', { class: 'members', style: 'margin-top:12px' }, mates.map(m => el('div', { class: 'member' },
+        el('span', { class: 'dot' }), m.name,
+        el('button', { class: 'btn sm ghost', style: 'margin-left:auto;min-height:34px', onclick: () => { delete p.mates[m.id]; this.store(); this.showCrew(true); } }, 'Remove')))) : null);
+
+    this.show('solid', el('div', { class: 'wrap' + (keepScroll ? '' : ' screen-in') },
+      el('div', { class: 'row' },
+        el('div', null, el('div', { class: 'kicker' }, 'Break room'), el('h1', null, 'Crew & records')),
+        el('div', { class: 'spacer' }),
+        el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies'),
+        el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back')),
+      el('div', { class: 'social-grid', style: 'margin-top:16px' }, you, crewPanel),
+      chal,
+      records,
+      cards));
+    if (keepScroll) this.ui.scrollTop = st;
+  }
 }
+
+const CUP = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 3H17V9A5 5 0 0 1 7 9Z M7 5H3V7A3 3 0 0 0 7 10 M17 5H21V7A3 3 0 0 1 17 10 M12 14V18 M8 21H16 M9 18H15V21H9Z"/></svg>';
+
+const CHARLES_SAYS = [
+  'Measure once, cut twice. Wait, no.',
+  'That is not a bug, it is a feature.',
+  'Righty tighty, lefty loosey.',
+  'I will fix it this weekend. Definitely.',
+  'Have you tried turning it off and on again?',
+  'Per my last email: more nailguns.',
+  'There is no problem duct tape cannot postpone.',
+  'Safety glasses are a lifestyle.',
+  'Let us take this offline. Into the Foundry.',
+  'The plan is: no plan survives the first wave.',
+  'Stop poking me. I am driving.',
+];
 
 // ================================================================ helpers
 export function upCost(t: string, L: number): Cost {
