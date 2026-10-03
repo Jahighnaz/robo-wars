@@ -116,6 +116,8 @@ const tuning = z.object({
   teslaFalloff: z.number(), teslaJump: z.number(), waveLength: z.number(), breatherEvery: z.number().int(),
   miniBossTimes: z.array(z.number()), budgetCap: z.number(), lootChance: z.number(), deathLootKeep: z.number(),
   workshopMax: z.number().int(),
+  /** enemy homing rockets: guidance burns out after `guide` s, a sharp juke (> breakLock rad) breaks the lock, player shots within hitR down them */
+  rocket: z.object({ speed: z.number(), turn: z.number(), guide: z.number(), life: z.number(), breakLock: z.number(), hitR: z.number() }),
   gridExpansions: z.array(z.object({ r: z.number().int(), cost })),
 });
 

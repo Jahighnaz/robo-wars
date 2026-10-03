@@ -41,5 +41,13 @@
         "crystal": 120
       }
     }
-  ]
+  ],
+  "rocket": {
+    "speed": 165,
+    "turn": 1.25,
+    "guide": 1.6,
+    "life": 3.8,
+    "breakLock": 1.5,
+    "hitR": 11
+  }
 }

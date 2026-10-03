@@ -95,6 +95,23 @@ describe('tiers, point defence and enemy weapons', () => {
     expect(run.stats.zapped).toBeGreaterThanOrEqual(4);
   });
 
+  it('rockets can be shot down, and a juke breaks their lock', () => {
+    const run = new Run(defaultSave(), 'rust', { seed: 4 });
+    run.update(1 / 60);
+    const V = run.V;
+    // a nail meets a rocket head-on, far from the truck
+    run.EBL.push({ x: V.x + 300, y: V.y, vx: -165, vy: 0, dmg: 11, life: 3.8, sp: null, kind: 'rocket', fuel: 1.6 });
+    run.PB.push({ x: V.x + 280, y: V.y, vx: 400, vy: 0, dmg: 5, type: 'kinetic', src: 'cannon', life: 1, r: 3, pierce: 0, burn: 0, hits: null, o: 0 });
+    for (let i = 0; i < 10; i++) run.update(1 / 60);
+    expect(run.EBL.some(b => b.kind === 'rocket')).toBe(false);
+    // a rocket that has flown past the truck does not turn around
+    run.EBL.push({ x: V.x + 60, y: V.y, vx: 165, vy: 0, dmg: 11, life: 3.8, sp: null, kind: 'rocket', fuel: 1.6 });
+    const rk = run.EBL[run.EBL.length - 1];
+    run.update(1 / 60);
+    expect(rk.fuel).toBe(0);
+    expect(rk.vy).toBe(0);
+  });
+
   it('enemies fire bombs, rail shots, rockets and spray', () => {
     const run = new Run(defaultSave(), 'rust', { seed: 3 });
     const kinds = new Set<string>();

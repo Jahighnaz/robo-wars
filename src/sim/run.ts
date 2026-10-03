@@ -45,6 +45,8 @@ export interface EnemyBullet {
   kind: EnemyShot;
   /** lob: start, target, flight time, progress, height */
   sx?: number; sy?: number; tx?: number; ty?: number; T?: number; t?: number; z?: number;
+  /** rocket: seconds of guidance left; set when a player shot or blast brings it down */
+  fuel?: number; downed?: boolean;
 }
 export interface Pickup { x: number; y: number; k: ResKey | 'xp'; amt: number; vx: number; vy: number }
 export interface Deposit { x: number; y: number; res: ResKey; amt: number; prog: number; cache?: boolean }
@@ -474,6 +476,7 @@ export class Run {
 
   private explode(x: number, y: number, r: number, dmg: number, type: DType, src: string | undefined, o: number): void {
     this.query(x, y, r + this.maxR, e => { const d = Math.hypot(e.x - x, e.y - y); if (d < r + e.r) this.hitEnemy(e, dmg, type, src, o); });
+    for (const rk of this.EBL) if (rk.kind === 'rocket' && Math.hypot(rk.x - x, rk.y - y) < r + T.rocket.hitR) rk.downed = true;
     this.ring(x, y, r, DCOL[type]);
     this.burst(x, y, 10, DCOL[type], 180);
     this.shake = Math.max(this.shake, 3);
@@ -673,10 +676,10 @@ export class Run {
       const tx = V.x + V.vx * T_ * 0.7, ty = V.y + V.vy * T_ * 0.7;
       this.EBL.push({ x: e.x, y: e.y, vx: 0, vy: 0, dmg: e.lob, life: T_ + 0.2, sp: e.sp, kind: 'lob', sx: e.x, sy: e.y, tx, ty, T: T_, t: 0, z: 0 });
     } else if (e.rocket > 0 && d < 620) {
-      // rocket pod: a slow homing missile; outrun it, out-turn it, or zap it
+      // rocket pod: a homing missile with short guidance; juke it, shoot it down, or zap it
       e.cd2 = 3.6;
-      const ang = Math.atan2(V.y - e.y, V.x - e.x);
-      this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * 175, vy: Math.sin(ang) * 175, dmg: e.rocket, life: 4.5, sp: e.sp, kind: 'rocket' });
+      const ang = Math.atan2(V.y - e.y, V.x - e.x), R = T.rocket;
+      this.EBL.push({ x: e.x, y: e.y, vx: Math.cos(ang) * R.speed, vy: Math.sin(ang) * R.speed, dmg: e.rocket, life: R.life, sp: e.sp, kind: 'rocket', fuel: R.guide });
     }
   }
 
@@ -708,7 +711,7 @@ export class Run {
       for (let i = 0; i < this.EBL.length; i++) {
         const b = this.EBL[i];
         const dd = (b.x - z.wx) ** 2 + (b.y - z.wy) ** 2;
-        if (dd < bd) { bd = dd; best = i; }
+        if (dd < pd.range * pd.range && dd * (b.kind === 'rocket' ? 0.25 : 1) < bd) { bd = dd * (b.kind === 'rocket' ? 0.25 : 1); best = i; }
       }
       if (best < 0) { z.cd = 0.05; continue; }
       const b = this.EBL[best];
@@ -825,8 +828,9 @@ export class Run {
     for (const p of this.players) if (p.alive) { this.fireWeapons(p, dt); this.pointDefence(p, dt); }
     if (this.over) return;
 
-    // player projectiles
+    // player projectiles (they can also bring enemy rockets down)
     const PB = this.PB;
+    const rockets = this.EBL.some(b => b.kind === 'rocket');
     for (let i = PB.length - 1; i >= 0; i--) {
       const p = PB[i];
       p.life -= dt;
@@ -839,6 +843,12 @@ export class Run {
       }
       p.x += p.vx * dt; p.y += p.vy * dt;
       let done = false;
+      if (rockets) for (const rk of this.EBL) {
+        if (rk.kind !== 'rocket' || rk.downed || Math.abs(rk.x - p.x) > T.rocket.hitR + p.r || Math.hypot(rk.x - p.x, rk.y - p.y) > T.rocket.hitR + p.r) continue;
+        rk.downed = true;
+        if (p.pierce > 0) p.pierce--; else { done = true; break; }
+      }
+      if (done) { swapRemove(PB, i); continue; }
       const owner = this.players[p.o] ?? this.players[0];
       this.query(p.x, p.y, p.r + this.maxR, e => {
         if (done) return;
@@ -942,11 +952,17 @@ export class Run {
         continue;
       }
       if (p.kind === 'rocket') {
-        const tgt = this.nearestPlayer(p.x, p.y);
+        if (p.downed) { this.burst(p.x, p.y, 8, '#ffb03a', 140); this.snd(700, 0.08, 'square', 0.02); swapRemove(EBL, i); continue; }
+        const tgt = (p.fuel ?? 0) > 0 ? this.nearestPlayer(p.x, p.y) : null;
         if (tgt) {
+          p.fuel! -= dt;
           const sp = Math.hypot(p.vx, p.vy), want = Math.atan2(tgt.V.y - p.y, tgt.V.x - p.x), cur = Math.atan2(p.vy, p.vx);
-          const na = cur + clamp(angDiff(cur, want), -1.9 * dt, 1.9 * dt);
-          p.vx = Math.cos(na) * sp; p.vy = Math.sin(na) * sp;
+          const off = angDiff(cur, want);
+          if (Math.abs(off) > T.rocket.breakLock) p.fuel = 0; // overshot: the lock breaks and it flies straight on
+          else {
+            const na = cur + clamp(off, -T.rocket.turn * dt, T.rocket.turn * dt);
+            p.vx = Math.cos(na) * sp; p.vy = Math.sin(na) * sp;
+          }
         }
       }
       p.x += p.vx * dt; p.y += p.vy * dt;

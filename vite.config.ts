@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/*.png', 'charles/*.png'],
+      includeAssets: ['icons/*.png', 'charles/*.png', 'avatars/*/*.png'],
       manifest: {
         name: 'Charles Projects',
         short_name: 'Charles',
