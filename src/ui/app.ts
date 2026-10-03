@@ -8,8 +8,8 @@ import { Preview3D } from '../render/three/preview3d';
 import { iconSvg } from '../render/icons';
 import { Joystick } from '../input/joystick';
 import { setMuted, shotSnd, snd, uiSnd, unlockAudio } from '../audio/audio';
-import { music, type Mood } from '../audio/music';
-import { defaultSave, exportCode, importCode, type Save, type Settings } from '../persistence/save';
+import { music, type Mood, type Track } from '../audio/music';
+import { defaultSave, exportCode, importCode, type Save, type Settings, type Soundtrack } from '../persistence/save';
 import { persist } from '../persistence/storage';
 import {
   compileVehicle, freshMods, makeVehicle, removeFromBuild, validCells,
@@ -183,15 +183,28 @@ export class App {
     requestAnimationFrame(t => this.frame(t));
   }
 
+  /** Mix: the swing in the workshop, the arcade techno on shift. */
+  private static readonly TRACKS: { id: Soundtrack; name: string }[] = [
+    { id: 'mix', name: 'Mix' }, { id: 'fever', name: 'Shop Floor Fever' }, { id: 'swing', name: 'Vieni in officina' }];
+  private nextTrack() {
+    const i = App.TRACKS.findIndex(t => t.id === this.settings.soundtrack);
+    this.settings.soundtrack = App.TRACKS[(i + 1) % App.TRACKS.length].id;
+    this.updateMusic();
+  }
+  private trackName() { return App.TRACKS.find(t => t.id === this.settings.soundtrack)!.name; }
+
   /** Menu theme in menus, the run track in a shift, the boss variant when a boss is out. */
   private updateMusic() {
     const run = this.run;
     const inRun = !!run && ['run', 'pause', 'cards', 'place'].includes(this.mode) && !run.over;
     const mood: Mood = !inRun ? 'menu' : run!.t >= T.runLength - 2 || run!.E.some(e => e.bossLv > 0) ? 'boss' : 'run';
     const ducked = inRun && this.mode !== 'run';
-    const key = mood + ducked;
+    const st = this.settings.soundtrack;
+    const track: Track = st === 'mix' ? (inRun ? 'fever' : 'swing') : st;
+    const key = mood + ducked + track;
     if (key === this.musicState) return;
     this.musicState = key;
+    music.setTrack(track);
     music.setMood(mood);
     music.setDucked(ducked);
   }
@@ -438,7 +451,10 @@ export class App {
       el('h1', null, 'Settings'),
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
         toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
-        toggle('Music', '"Shop Floor Fever": 8-bit arcade techno, generated live.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
+        toggle('Music', 'Chiptune generated live. Starts after your first touch.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
+        el('button', { class: 'toggle', onclick: () => { this.nextTrack(); this.store(); uiSnd(); this.showSettings(); } },
+          el('div', { class: 'tl' }, 'Soundtrack', el('div', null, 'Mix: "Vieni in officina" (workshop swing) in menus, "Shop Floor Fever" (arcade techno) on shift. Tap to change.')),
+          el('span', { class: 'pick' }, this.trackName())),
         toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
         toggle('Firing arcs', 'Show where each tool fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
         toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
@@ -718,6 +734,7 @@ export class App {
       el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
         toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
         toggleBtn('Music', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
+        el('button', { class: 'btn sm ghost', onclick: () => { this.nextTrack(); this.store(); this.setMode('run'); this.showPause(); } }, 'Track: ' + this.trackName()),
         toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
         toggleBtn('Shake', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
       co && co.role === 'client' ? null : el('h2', null, 'Damage so far'),

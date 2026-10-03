@@ -333,6 +333,7 @@ details summary::-webkit-details-marker { display: none; }
 .switch { width: 54px; height: 28px; border: 1px solid var(--line2); position: relative; flex: none; background: rgba(5,6,11,0.8); }
 .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: var(--muted); transition: transform .15s, background .15s; }
 .switch.on { border-color: var(--acid); }
+.pick { flex: none; padding: 6px 12px; border: 1px solid var(--acid); color: var(--acid); font-weight: 700; white-space: nowrap; }
 .switch.on::after { transform: translateX(26px); background: var(--acid); box-shadow: 0 0 10px var(--acid); }
 textarea {
   width: 100%; min-height: 120px; background: rgba(5,6,11,0.8); color: var(--text); border: 1px solid var(--line2); padding: 12px;

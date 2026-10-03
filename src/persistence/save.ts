@@ -10,7 +10,8 @@ export interface WorldState {
   res: Record<DType, number>; species: Species[]; log: string[];
 }
 
-export interface Settings { dmgNumbers: boolean; arcs: boolean; shake: boolean; bloom: boolean; music: boolean }
+export type Soundtrack = 'mix' | 'fever' | 'swing';
+export interface Settings { dmgNumbers: boolean; arcs: boolean; shake: boolean; bloom: boolean; music: boolean; soundtrack: Soundtrack }
 
 export interface Save {
   v: 1;
@@ -28,7 +29,7 @@ export interface Save {
   profile?: Profile;
 }
 
-export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true, music: true });
+export const defaultSettings = (): Settings => ({ dmgNumbers: true, arcs: true, shake: true, bloom: true, music: true, soundtrack: 'mix' });
 
 export function newWorldState(save: Pick<Save, 'nextId'>, k: string): WorldState {
   const w: WorldState = { gen: 0, tier: 1, runs: 0, wins: 0, era: 1, res: {} as Record<DType, number>, species: [], log: [] };
