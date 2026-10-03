@@ -253,3 +253,23 @@ export function hazardTexture(color: string, edge: string, kind: string): THREE.
     }
   });
 }
+
+/** Circular saw blade (white on transparent), tinted by the decal shader. */
+export const sawTexture = () => canvasTex(128, 128, g => {
+  const o = 64, teeth = 18;
+  g.fillStyle = 'rgba(255,255,255,0.9)';
+  g.beginPath();
+  for (let i = 0; i < teeth; i++) {
+    const a0 = (i / teeth) * Math.PI * 2, a1 = ((i + 0.6) / teeth) * Math.PI * 2;
+    g.lineTo(o + Math.cos(a0) * 50, o + Math.sin(a0) * 50);
+    g.lineTo(o + Math.cos(a1) * 62, o + Math.sin(a1) * 62);
+  }
+  g.closePath(); g.fill();
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath(); g.arc(o, o, 34, 0, Math.PI * 2); g.fill();
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = 'rgba(255,255,255,0.45)';
+  g.beginPath(); g.arc(o, o, 34, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,255,255,1)';
+  g.beginPath(); g.arc(o, o, 9, 0, Math.PI * 2); g.fill();
+});

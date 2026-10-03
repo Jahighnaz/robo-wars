@@ -1,23 +1,267 @@
 {
-  "cab":     { "name": "Cab", "ab": "C", "cat": "cab", "hp": 170, "mass": 3, "power": 6, "color": "#f5ff3b", "desc": "The core. If it breaks, the run ends." },
-  "wheel":   { "name": "Wheel", "ab": "W", "cat": "prop", "hp": 45, "mass": 1, "thrust": 7, "turn": 3.6, "color": "#9fb4cc", "desc": "Light and quick. Slow in mud.", "cost": { "scrap": 20 } },
-  "track":   { "name": "Track", "ab": "T", "cat": "prop", "hp": 85, "mass": 2, "thrust": 9, "turn": 4.6, "mud": true, "color": "#7f95b3", "desc": "Ignores mud and grips on ice.", "cost": { "scrap": 30, "copper": 10 } },
-  "hover":   { "name": "Hover pad", "ab": "H", "cat": "prop", "hp": 30, "mass": 0.6, "thrust": 6, "turn": 4.0, "hover": true, "power": -1, "color": "#2ef2c8", "desc": "Floats over lava.", "cost": { "crystal": 15, "copper": 10 } },
-  "armor":   { "name": "Armor plate", "ab": "A", "cat": "armor", "hp": 120, "mass": 2, "color": "#d4def0", "desc": "Absorbs 40% of hits on neighbouring blocks.", "cost": { "scrap": 25 } },
-  "regen":   { "name": "Regen moss", "ab": "M", "cat": "armor", "hp": 80, "mass": 1, "regen": 4, "color": "#5dff8a", "desc": "Armor that regrows 4 HP/s.", "cost": { "resin": 20, "scrap": 10 } },
-  "cannon":  { "name": "Autocannon", "ab": "AC", "cat": "weapon", "hp": 50, "mass": 1.5, "power": -1, "dir": true, "color": "#ffd166", "desc": "Steady kinetic fire in its facing. Neighbouring cannons fire faster.",
-               "w": { "type": "kinetic", "dmg": 11, "rate": 4.5, "range": 300, "arc": 130, "speed": 680, "spread": 0.06 }, "cost": { "scrap": 30 } },
-  "shotgun": { "name": "Scattergun", "ab": "SG", "cat": "weapon", "hp": 55, "mass": 1.5, "power": -1, "dir": true, "color": "#ff9f43", "desc": "Close-range pellet burst.",
-               "w": { "type": "kinetic", "dmg": 10, "rate": 1.6, "range": 230, "arc": 140, "speed": 600, "spread": 0.42, "pellets": 6 }, "cost": { "scrap": 35 } },
-  "laser":   { "name": "Laser", "ab": "L", "cat": "weapon", "hp": 40, "mass": 1, "power": -2, "dir": true, "color": "#3df5ff", "desc": "Instant long-range energy beam. +20% damage per adjacent battery.",
-               "w": { "type": "energy", "dmg": 30, "rate": 1.4, "range": 360, "arc": 70, "beam": true }, "cost": { "crystal": 20, "copper": 10 } },
-  "tesla":   { "name": "Tesla coil", "ab": "Z", "cat": "weapon", "hp": 45, "mass": 1.5, "power": -2, "color": "#b18cff", "desc": "360° lightning that chains to 3 more enemies. +1 chain per adjacent battery.",
-               "w": { "type": "electric", "dmg": 13, "rate": 1.2, "range": 220, "arc": 360, "chain": 3 }, "cost": { "copper": 30 } },
-  "flamer":  { "name": "Flamer", "ab": "F", "cat": "weapon", "hp": 50, "mass": 1.5, "power": -1, "dir": true, "color": "#ff5e3a", "desc": "Short cone of fire that sets enemies burning.",
-               "w": { "type": "fire", "dmg": 7, "rate": 10, "range": 185, "arc": 80, "speed": 340, "spread": 0.3, "burn": 16, "life": 0.55, "pierce": 2 }, "cost": { "pyro": 25, "scrap": 10 } },
-  "mortar":  { "name": "Mortar", "ab": "MO", "cat": "weapon", "hp": 60, "mass": 2.5, "power": -1, "color": "#ff8c1a", "desc": "360° lobbed shells with splash damage.",
-               "w": { "type": "explosive", "dmg": 26, "rate": 0.7, "range": 400, "arc": 360, "lob": true, "aoe": 70 }, "cost": { "pyro": 20, "scrap": 20 } },
-  "battery": { "name": "Battery", "ab": "B", "cat": "energy", "hp": 40, "mass": 1, "power": 4, "color": "#a6ff4d", "desc": "+4 power. Boosts adjacent lasers and Tesla coils.", "cost": { "copper": 20 } },
-  "magnet":  { "name": "Magnet", "ab": "MG", "cat": "util", "hp": 40, "mass": 1, "magnet": 90, "color": "#ff4d9d", "desc": "+90 pickup range.", "cost": { "copper": 15, "scrap": 10 } },
-  "repair":  { "name": "Repair arm", "ab": "R", "cat": "util", "hp": 45, "mass": 1, "power": -1, "repair": 7, "color": "#ffe9a8", "desc": "Repairs adjacent blocks by 7 HP/s.", "cost": { "resin": 25 } }
+ "cab": {
+  "name": "Truck cab",
+  "ab": "CB",
+  "cat": "cab",
+  "hp": 170,
+  "mass": 3,
+  "power": 6,
+  "color": "#f5ff3b",
+  "desc": "Captain Charles rides up here. If the cab breaks, the run ends."
+ },
+ "wheel": {
+  "name": "Caster wheel",
+  "ab": "W",
+  "cat": "prop",
+  "hp": 45,
+  "mass": 1,
+  "thrust": 7,
+  "turn": 3.6,
+  "color": "#9fb4cc",
+  "desc": "Light and quick. Slow in oil sludge.",
+  "cost": {
+   "scrap": 20
+  }
+ },
+ "track": {
+  "name": "Tread",
+  "ab": "T",
+  "cat": "prop",
+  "hp": 85,
+  "mass": 2,
+  "thrust": 9,
+  "turn": 4.6,
+  "mud": true,
+  "color": "#7f95b3",
+  "desc": "Drives through oil sludge and grips on frozen floors.",
+  "cost": {
+   "scrap": 30,
+   "copper": 10
+  }
+ },
+ "hover": {
+  "name": "Air pad",
+  "ab": "AP",
+  "cat": "prop",
+  "hp": 30,
+  "mass": 0.6,
+  "thrust": 6,
+  "turn": 4.0,
+  "hover": true,
+  "power": -1,
+  "color": "#2ef2c8",
+  "desc": "Floats over molten slag.",
+  "cost": {
+   "crystal": 15,
+   "copper": 10
+  }
+ },
+ "armor": {
+  "name": "Steel plate",
+  "ab": "SP",
+  "cat": "armor",
+  "hp": 120,
+  "mass": 2,
+  "color": "#d4def0",
+  "desc": "Absorbs 40% of hits on neighbouring blocks.",
+  "cost": {
+   "scrap": 25
+  }
+ },
+ "regen": {
+  "name": "Duct tape",
+  "ab": "DT",
+  "cat": "armor",
+  "hp": 80,
+  "mass": 1,
+  "regen": 4,
+  "color": "#9aa7b8",
+  "desc": "Self-patching plating that regrows 4 HP/s.",
+  "cost": {
+   "resin": 20,
+   "scrap": 10
+  }
+ },
+ "cannon": {
+  "name": "Nailgun",
+  "ab": "NG",
+  "cat": "weapon",
+  "hp": 50,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ffb703",
+  "desc": "Rapid framing nails in its facing. Nailguns side by side fire faster.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 11,
+   "rate": 4.5,
+   "range": 300,
+   "arc": 130,
+   "speed": 680,
+   "spread": 0.06
+  },
+  "cost": {
+   "scrap": 30
+  }
+ },
+ "shotgun": {
+  "name": "Saw launcher",
+  "ab": "SL",
+  "cat": "weapon",
+  "hp": 55,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ff8c42",
+  "desc": "Flings a fan of spinning saw discs at close range.",
+  "w": {
+   "type": "kinetic",
+   "dmg": 10,
+   "rate": 1.6,
+   "range": 230,
+   "arc": 140,
+   "speed": 600,
+   "spread": 0.42,
+   "pellets": 6
+  },
+  "cost": {
+   "scrap": 35
+  }
+ },
+ "laser": {
+  "name": "Laser cutter",
+  "ab": "LC",
+  "cat": "weapon",
+  "hp": 40,
+  "mass": 1,
+  "power": -2,
+  "dir": true,
+  "color": "#ff3b5c",
+  "desc": "Instant long-range cutting beam. +20% damage per adjacent battery pack.",
+  "w": {
+   "type": "energy",
+   "dmg": 30,
+   "rate": 1.4,
+   "range": 360,
+   "arc": 70,
+   "beam": true
+  },
+  "cost": {
+   "crystal": 20,
+   "copper": 10
+  }
+ },
+ "tesla": {
+  "name": "Arc welder",
+  "ab": "AW",
+  "cat": "weapon",
+  "hp": 45,
+  "mass": 1.5,
+  "power": -2,
+  "color": "#7fb8ff",
+  "desc": "360° welding arcs that jump to 3 more enemies. +1 jump per adjacent battery pack.",
+  "w": {
+   "type": "electric",
+   "dmg": 13,
+   "rate": 1.2,
+   "range": 220,
+   "arc": 360,
+   "chain": 3
+  },
+  "cost": {
+   "copper": 30
+  }
+ },
+ "flamer": {
+  "name": "Hot glue gun",
+  "ab": "HG",
+  "cat": "weapon",
+  "hp": 50,
+  "mass": 1.5,
+  "power": -1,
+  "dir": true,
+  "color": "#ff7ad9",
+  "desc": "Short stream of molten glue that pierces and keeps burning.",
+  "w": {
+   "type": "fire",
+   "dmg": 7,
+   "rate": 10,
+   "range": 185,
+   "arc": 80,
+   "speed": 340,
+   "spread": 0.3,
+   "burn": 16,
+   "life": 0.55,
+   "pierce": 2
+  },
+  "cost": {
+   "pyro": 25,
+   "scrap": 10
+  }
+ },
+ "mortar": {
+  "name": "Plasma cutter",
+  "ab": "PC",
+  "cat": "weapon",
+  "hp": 60,
+  "mass": 2.5,
+  "power": -1,
+  "color": "#c77dff",
+  "desc": "360° lobbed plasma globs that splash on impact.",
+  "w": {
+   "type": "explosive",
+   "dmg": 26,
+   "rate": 0.7,
+   "range": 400,
+   "arc": 360,
+   "lob": true,
+   "aoe": 70
+  },
+  "cost": {
+   "pyro": 20,
+   "scrap": 20
+  }
+ },
+ "battery": {
+  "name": "Battery pack",
+  "ab": "BP",
+  "cat": "energy",
+  "hp": 40,
+  "mass": 1,
+  "power": 4,
+  "color": "#a6ff4d",
+  "desc": "+4 power. Boosts adjacent laser cutters and arc welders.",
+  "cost": {
+   "copper": 20
+  }
+ },
+ "magnet": {
+  "name": "Magnet sweeper",
+  "ab": "MS",
+  "cat": "util",
+  "hp": 40,
+  "mass": 1,
+  "magnet": 90,
+  "color": "#ff4d9d",
+  "desc": "+90 pickup range.",
+  "cost": {
+   "copper": 15,
+   "scrap": 10
+  }
+ },
+ "repair": {
+  "name": "Repair clamp",
+  "ab": "RC",
+  "cat": "util",
+  "hp": 45,
+  "mass": 1,
+  "power": -1,
+  "repair": 7,
+  "color": "#ffe9a8",
+  "desc": "Fixes adjacent blocks by 7 HP/s.",
+  "cost": {
+   "resin": 25
+  }
+ }
 }

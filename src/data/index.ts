@@ -11,8 +11,11 @@ import tuningJson from './tuning.json';
 export const DTYPES = ['kinetic', 'explosive', 'fire', 'energy', 'electric'] as const;
 export type DType = (typeof DTYPES)[number];
 export const DCOL: Record<DType, string> = {
-  kinetic: '#ffe66d', explosive: '#ff9f1c', fire: '#ff4d2e', energy: '#3df5ff', electric: '#b18cff',
+  kinetic: '#e6f0ff', explosive: '#d07dff', fire: '#ffd166', energy: '#ff3b5c', electric: '#9fd0ff',
 };
+
+/** Player-facing names for damage types (workshop theme). */
+export const DNAME: Record<DType, string> = { kinetic: 'nail', explosive: 'plasma', fire: 'glue', energy: 'laser', electric: 'welding arc' };
 
 const dtype = z.enum(DTYPES);
 const resKey = z.enum(['scrap', 'copper', 'resin', 'crystal', 'pyro', 'shard']);

@@ -10,7 +10,8 @@ import { B, DCOL, EB, RES, T, type DType } from '../../data';
 import { clamp, lerp, TAU } from '../../core/math';
 import type { Run } from '../../sim/run';
 import { col, Pool } from './pool';
-import { decalMaterial, glowMaterial, groundMaterial, hazardTexture, iconAtlas, neonMaterial, radialTexture, ringTexture } from './materials';
+import { decalMaterial, glowMaterial, groundMaterial, hazardTexture, iconAtlas, neonMaterial, radialTexture, ringTexture, sawTexture } from './materials';
+import { Bobblehead } from './charles';
 
 const CS = T.cellSize;
 const EC = T.enemyCell;
@@ -31,11 +32,11 @@ export function blockHeight(t: string): number {
 export function weaponDetail(t: string): { w: number; h: number; l: number; fwd: number } | null {
   switch (t) {
     case 'cannon': return { w: 4, h: 4, l: 13, fwd: 7 };
-    case 'shotgun': return { w: 8, h: 4, l: 9, fwd: 6 };
+    case 'shotgun': return { w: 6, h: 3, l: 6, fwd: 5 };
     case 'laser': return { w: 2.6, h: 2.6, l: 17, fwd: 9 };
     case 'flamer': return { w: 7, h: 5, l: 8, fwd: 6 };
     case 'tesla': return { w: 6, h: 14, l: 6, fwd: 0 };
-    case 'mortar': return { w: 11, h: 6, l: 11, fwd: 0 };
+    case 'mortar': return { w: 4, h: 14, l: 4, fwd: 0 };
     default: return null;
   }
 }
@@ -72,7 +73,8 @@ export class Renderer3D {
   // dynamic pools
   private pBlocks: Pool; private pBarrels: Pool; private pEnemy: Pool; private pDeposit: Pool;
   private pXp: Pool; private pRes: Pool; private pShot: Pool; private pEnemyShot: Pool; private pBeam: Pool;
-  private pSpark: Pool; private pDebris: Pool; private pGlow: Pool; private pRing: Pool;
+  private pSpark: Pool; private pDebris: Pool; private pGlow: Pool; private pRing: Pool; private pSaw: Pool;
+  private charles: Bobblehead;
 
   constructor(cv: HTMLCanvasElement, overlay: HTMLCanvasElement) {
     this.gl = new THREE.WebGLRenderer({ canvas: cv, antialias: true, powerPreference: 'high-performance' });
@@ -112,7 +114,10 @@ export class Renderer3D {
     this.pDebris = new Pool(cbox, this.neon, 120);
     this.pGlow = new Pool(flat, decalMaterial(radial, 1.0), 2600);
     this.pRing = new Pool(flat, decalMaterial(ring, 1.6), 300);
-    for (const p of [this.pGlow, this.pRing, this.pBlocks, this.pBarrels, this.pEnemy, this.pDeposit, this.pXp, this.pRes,
+    this.pSaw = new Pool(flat, decalMaterial(sawTexture(), 1.5), 500);
+    this.charles = new Bobblehead();
+    this.scene.add(this.charles.sprite);
+    for (const p of [this.pSaw, this.pGlow, this.pRing, this.pBlocks, this.pBarrels, this.pEnemy, this.pDeposit, this.pXp, this.pRes,
       this.pShot, this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris]) this.scene.add(p.mesh);
     this.pGlow.mesh.renderOrder = 1; this.pRing.mesh.renderOrder = 2;
 
@@ -250,7 +255,7 @@ export class Renderer3D {
     const vis = (x: number, y: number) => Math.abs(x - vx) < cullR && Math.abs(y - vy) < cullR;
 
     for (const p of [this.pBlocks, this.pBarrels, this.pEnemy, this.pDeposit, this.pXp, this.pRes, this.pShot,
-      this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris, this.pGlow, this.pRing]) p.begin();
+      this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris, this.pGlow, this.pRing, this.pSaw]) p.begin();
 
     // ---- deposits
     for (const dp of run.DEP) {
@@ -277,6 +282,7 @@ export class Renderer3D {
     }
 
     // ---- player vehicle
+    this.charles.hide();
     const phi = ip.vh + Math.PI / 2, cp = Math.cos(phi), sp = Math.sin(phi);
     const ug = V.s.radius * 4.2;
     this.pGlow.push(vx, 0.8, vy, 0, ug, 1, ug, col('#00c8ff'), 0.3);
@@ -298,6 +304,8 @@ export class Renderer3D {
         this.pBarrels.push(ox, h, oz, yaw, det.w, det.h, det.l, c, k);
       }
       if (d.hover) this.pGlow.push(wx, 0.9, wz, 0, 34, 1, 34, col('#2ef2c8'), 0.7);
+      if (b.t === 'shotgun') this.pSaw.push(wx, h + 3.5, wz, this.time * 9, 15, 1, 15, c, k);
+      if (b.t === 'cab') this.charles.update(wx, h, wz, ip.vh, V, dt, this.time);
     }
 
     // ---- enemies
@@ -335,13 +343,20 @@ export class Renderer3D {
       if (!vis(p.x, p.y)) continue;
       if (p.lob) {
         const c = col(DCOL.explosive);
-        this.pShot.push(p.x, 10 + (p.z || 0) * 1.4, p.y, this.time * 6, 6, 6, 6, c);
+        this.pEnemyShot.push(p.x, 10 + (p.z || 0) * 1.4, p.y, 0, 5.5, 5.5, 5.5, c, 1.2);
         this.pRing.push(p.tx!, 1.3, p.ty!, 0, p.aoe! * 1.1, 1, p.aoe! * 1.1, c, 0.35);
         this.pGlow.push(p.x, 1, p.y, 0, 30, 1, 30, c, 0.4);
       } else if (p.type === 'fire') {
+        // hot glue: a pale molten blob that sags toward the floor
         const age = 0.55 - Math.max(0, p.life);
-        const s = p.r * (1.4 + age * 3);
-        this.pGlow.push(p.x, 6 + age * 10, p.y, 0, s * 4, 1, s * 4, col('#ff6a2a'), clamp(p.life * 2.2, 0.15, 1) * 1.6);
+        const s = p.r * (0.9 + age * 1.6);
+        this.pEnemyShot.push(p.x, Math.max(2, 9 - age * 14), p.y, 0, s * 0.55, s * 0.4, s * 0.55, col('#fff1a8'), 0.9);
+        this.pGlow.push(p.x, 1, p.y, 0, s * 3.2, 1, s * 3.2, col('#ffd166'), clamp(p.life * 2.2, 0.15, 1));
+      } else if (p.src === 'shotgun') {
+        this.pSaw.push(p.x, 9, p.y, this.time * 30 + p.x, 12, 1, 12, col('#ffc08a'), 1.1);
+      } else if (p.src === 'cannon') {
+        // framing nail: long thin shank
+        this.pShot.push(p.x, 9, p.y, -Math.atan2(p.vy, p.vx), 11, 1.3, 1.3, col('#e6f0ff'), 1.1);
       } else {
         const len = Math.hypot(p.vx, p.vy) * 0.03;
         this.pShot.push(p.x, 9, p.y, -Math.atan2(p.vy, p.vx), len, 2.4, 2.4, col(DCOL[p.type as DType]));
@@ -376,7 +391,7 @@ export class Renderer3D {
     }
 
     for (const p of [this.pBlocks, this.pBarrels, this.pEnemy, this.pDeposit, this.pXp, this.pRes, this.pShot,
-      this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris, this.pGlow, this.pRing]) p.end();
+      this.pEnemyShot, this.pBeam, this.pSpark, this.pDebris, this.pGlow, this.pRing, this.pSaw]) p.end();
 
     if (opts.bloom) this.composer.render();
     else this.gl.render(this.scene, this.camera);

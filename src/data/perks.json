@@ -1,16 +1,102 @@
 [
-  { "id": "rate",   "name": "Overclock",       "desc": "All weapons fire 15% faster.",             "stat": "rate",   "add": 0.15 },
-  { "id": "range",  "name": "Long barrels",    "desc": "+15% weapon range.",                        "stat": "range",  "add": 0.15 },
-  { "id": "magnet", "name": "Scrap magnet",    "desc": "+60 pickup range.",                         "stat": "magnet", "add": 60 },
-  { "id": "speed",  "name": "Nitro lines",     "desc": "+12% top speed.",                           "stat": "speed",  "add": 0.12 },
-  { "id": "xp",     "name": "Data core",       "desc": "+20% experience.",                          "stat": "xp",     "add": 0.2 },
-  { "id": "heal",   "name": "Salvage welder",  "desc": "Every kill repairs a damaged block by 2 HP.", "stat": "heal", "add": 2 },
-  { "id": "armor",  "name": "Hardened welds",  "desc": "Take 10% less damage.",                     "stat": "armor",  "add": 0.1, "max": 0.5 },
-  { "id": "regen",  "name": "Nanite paint",    "desc": "Every block regenerates 1 HP/s.",           "stat": "regen",  "add": 1 },
-  { "id": "crit",   "name": "Targeting AI",    "desc": "+10% chance to deal double damage.",        "stat": "crit",   "add": 0.1, "max": 0.6 },
-  { "id": "kin",    "name": "Tungsten rounds", "desc": "+25% kinetic damage.",                      "stat": "dmg.kinetic",   "add": 0.25 },
-  { "id": "fire",   "name": "Napalm mix",      "desc": "+30% fire damage.",                         "stat": "dmg.fire",      "add": 0.3 },
-  { "id": "elec",   "name": "Supercapacitors", "desc": "+30% electric damage.",                     "stat": "dmg.electric",  "add": 0.3 },
-  { "id": "energy", "name": "Focusing lens",   "desc": "+30% energy damage.",                       "stat": "dmg.energy",    "add": 0.3 },
-  { "id": "boom",   "name": "Shaped charges",  "desc": "+30% explosive damage.",                    "stat": "dmg.explosive", "add": 0.3 }
+ {
+  "id": "rate",
+  "name": "Overclocked motors",
+  "desc": "All tools fire 15% faster.",
+  "stat": "rate",
+  "add": 0.15
+ },
+ {
+  "id": "range",
+  "name": "Extension cords",
+  "desc": "+15% tool range.",
+  "stat": "range",
+  "add": 0.15
+ },
+ {
+  "id": "magnet",
+  "name": "Shop vac",
+  "desc": "+60 pickup range.",
+  "stat": "magnet",
+  "add": 60
+ },
+ {
+  "id": "speed",
+  "name": "Turbo casters",
+  "desc": "+12% top speed.",
+  "stat": "speed",
+  "add": 0.12
+ },
+ {
+  "id": "xp",
+  "name": "Blueprint notes",
+  "desc": "+20% experience.",
+  "stat": "xp",
+  "add": 0.2
+ },
+ {
+  "id": "heal",
+  "name": "Salvage welder",
+  "desc": "Every kill repairs a damaged block by 2 HP.",
+  "stat": "heal",
+  "add": 2
+ },
+ {
+  "id": "armor",
+  "name": "Hardened welds",
+  "desc": "Take 10% less damage.",
+  "stat": "armor",
+  "add": 0.1,
+  "max": 0.5
+ },
+ {
+  "id": "regen",
+  "name": "Tape everything",
+  "desc": "Every block regenerates 1 HP/s.",
+  "stat": "regen",
+  "add": 1
+ },
+ {
+  "id": "crit",
+  "name": "Laser level",
+  "desc": "+10% chance to deal double damage.",
+  "stat": "crit",
+  "add": 0.1,
+  "max": 0.6
+ },
+ {
+  "id": "kin",
+  "name": "Hardened nails",
+  "desc": "+25% nail damage.",
+  "stat": "dmg.kinetic",
+  "add": 0.25
+ },
+ {
+  "id": "fire",
+  "name": "Industrial glue",
+  "desc": "+30% glue damage.",
+  "stat": "dmg.fire",
+  "add": 0.3
+ },
+ {
+  "id": "elec",
+  "name": "High-amp welder",
+  "desc": "+30% welding arc damage.",
+  "stat": "dmg.electric",
+  "add": 0.3
+ },
+ {
+  "id": "energy",
+  "name": "Sharper lens",
+  "desc": "+30% laser damage.",
+  "stat": "dmg.energy",
+  "add": 0.3
+ },
+ {
+  "id": "boom",
+  "name": "Pressurised plasma",
+  "desc": "+30% plasma damage.",
+  "stat": "dmg.explosive",
+  "add": 0.3
+ }
 ]

@@ -6,6 +6,7 @@ import type { BuildCell } from '../../vehicle/vehicle';
 import { col, Pool } from './pool';
 import { groundMaterial, iconAtlas, neonMaterial } from './materials';
 import { blockHeight, ICON_TYPES, weaponDetail } from './renderer3d';
+import { charlesSprite, charlesTexture } from './charles';
 
 const CS = T.cellSize;
 
@@ -17,6 +18,8 @@ export class Preview3D {
   private blocks: Pool;
   private barrels: Pool;
   private arcs = new THREE.Group();
+  private charles: THREE.Sprite;
+  private last: [BuildCell[], number, number] | null = null;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -28,10 +31,15 @@ export class Preview3D {
     this.blocks = new Pool(box, neonMaterial({ atlas: iconAtlas(ICON_TYPES), iconCount: ICON_TYPES.length, edge: 0.1, glow: 1.5, body: 0.3 }), 200, true);
     this.barrels = new Pool(box, neonMaterial({ edge: 0.12, glow: 1.5, body: 0.3 }), 200);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(3000, 3000).rotateX(-Math.PI / 2), groundMaterial(new THREE.Color(0x070a14), new THREE.Color(0x00f0ff)));
-    this.scene.add(ground, this.arcs, this.blocks.mesh, this.barrels.mesh);
+    // showroom pose: Charles turned three-quarters toward the viewer
+    const tex = charlesTexture(() => { if (this.last) this.render(...this.last); });
+    tex.offset.x = 7 / 8;
+    this.charles = charlesSprite(tex);
+    this.scene.add(ground, this.arcs, this.blocks.mesh, this.barrels.mesh, this.charles);
   }
 
   render(build: BuildCell[], w: number, h: number): void {
+    this.last = [build, w, h];
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.gl.setPixelRatio(dpr);
     this.gl.setSize(w, h, false);
@@ -64,6 +72,7 @@ export class Preview3D {
       if (det) this.barrels.push(x - det.fwd * Math.sin(yaw), hh, z - det.fwd * Math.cos(yaw), yaw, det.w, det.h, det.l, col(d.color));
     }
     this.blocks.end(); this.barrels.end();
+    this.charles.position.set(0, blockHeight('cab'), 0);
 
     // camera framing the vehicle and its arcs
     const pitch = (55 * Math.PI) / 180;

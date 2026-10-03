@@ -1,5 +1,5 @@
 // Screens, HUD and the main loop. Owns the save and the current run.
-import { B, DTYPES, PLACEABLE, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, type ResKey } from '../data';
+import { B, DNAME, DTYPES, PLACEABLE, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, type ResKey } from '../data';
 import { angDiff, clamp, fmtTime, lerp, roman } from '../core/math';
 import { describeSpecies } from '../enemies/species';
 import { Run, type Card, type RunResult } from '../sim/run';
@@ -256,7 +256,7 @@ export class App {
     const worlds = WORLD_KEYS.map(k => {
       const Wd = WORLDS[k], W = s.worlds[k];
       const maxw = Math.max(...Object.values(Wd.res).map(v => v || 0));
-      const resist = DTYPES.filter(t => W.res[t] > 0).map(t => t + ' ' + Math.round(W.res[t] * 100) + '%');
+      const resist = DTYPES.filter(t => W.res[t] > 0).map(t => DNAME[t] + ' ' + Math.round(W.res[t] * 100) + '%');
       return el('div', { class: 'panel world', style: `--acc:${Wd.theme.accent}` },
         el('div', { class: 'bandimg' }),
         k === 'rust' && s.runs === 0 ? el('div', { class: 'badge' }, 'START HERE') : null,
@@ -278,10 +278,13 @@ export class App {
     this.show('solid', el('div', { class: 'wrap screen-in' },
       el('div', { class: 'hub-head' },
         el('div', null,
-          el('div', { class: 'kicker' }, 'Survive · Salvage · Evolve'),
-          el('h1', { class: 'logo', 'data-text': 'SCRAP//EVOLUTION' }, 'SCRAP', el('span', { class: 'slash' }, '//'), el('span', { class: 'evo' }, 'EVOLUTION'))),
-        el('div', { class: 'stat', style: 'font-size:12px' }, 'RUNS ', el('b', null, String(s.runs)), ' · WINS ', el('b', null, String(s.wins)), ' · SPECIES FOUND ', el('b', null, String(s.discovered)))),
-      el('p', { class: 'sub' }, 'Build a machine from blocks, survive five minutes of waves, destroy the apex. Every world evolves against the way you play.'),
+          el('div', { class: 'kicker' }, 'Build · Survive · Tinker'),
+          el('h1', { class: 'logo', 'data-text': 'CHARLES//PROJECTS' }, 'CHARLES', el('span', { class: 'slash' }, '//'), el('span', { class: 'evo' }, 'PROJECTS')),
+          el('div', { class: 'stat', style: 'font-size:12px;display:inline-block;margin-top:14px' }, 'RUNS ', el('b', null, String(s.runs)), ' · WINS ', el('b', null, String(s.wins)), ' · SPECIES FOUND ', el('b', null, String(s.discovered)))),
+        el('div', { class: 'captain' },
+          el('img', { src: 'charles/portrait.png', alt: 'Captain Charles', draggable: 'false' }),
+          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, 'Charles')))),
+      el('p', { class: 'sub' }, "Captain Charles drives a workshop truck built from blocks. Bolt on nailguns, saw launchers, hot glue, laser and plasma cutters, survive five minutes of waves and scrap the apex. Every sector evolves against the way you build."),
       this.resChips(s.res),
       el('div', { class: 'nav' },
         el('button', { class: 'btn', onclick: () => { uiSnd(); this.gSel = null; this.gTool = null; this.showGarage(); } }, el('span', { html: iconSvg('cab', 'currentColor', 18) }), 'Garage'),
@@ -303,14 +306,14 @@ export class App {
       el('div', { class: 'kicker' }, 'Field manual'),
       el('h1', null, 'How to play'),
       el('div', { class: 'steps', style: 'margin-top:22px' },
-        step('01', '#00f0ff', 'Drive', 'Touch anywhere and drag. Your machine turns toward your thumb. Let go to coast. That is the only control.', 'wheel'),
-        step('02', '#ffd166', 'Aim by building', 'Every weapon fires on its own, but only inside its arc. A cannon facing backwards covers your retreat. The triangle on a block shows where it fires.', 'cannon'),
-        step('03', '#5dff8a', 'Collect', 'Kills drop experience (cyan) and resources (diamonds). Park on a crystal deposit for 2 seconds to mine it.', 'magnet'),
+        step('01', '#00f0ff', 'Drive', 'Touch anywhere and drag. Charles steers the truck toward your thumb. Let go to coast. That is the only control.', 'wheel'),
+        step('02', '#ffd166', 'Aim by building', 'Every tool fires on its own, but only inside its arc. A nailgun facing backwards covers your retreat. The barrel on a block shows where it fires.', 'cannon'),
+        step('03', '#5dff8a', 'Collect', 'Kills drop experience (cyan) and parts (diamonds). Park on a supply crystal for 2 seconds to salvage it.', 'magnet'),
         step('04', '#f5ff3b', 'Level up', 'Each level offers three cards: a new block to bolt on, an upgrade, or a perk. New blocks snap onto any free slot next to your machine.', 'battery'),
-        step('05', '#ff2bd6', 'Stay connected', 'Blocks that lose their link to the cab fall off. Armor takes 40% of hits on its neighbours. Batteries feed Tesla coils and lasers; cannons side by side fire faster.', 'armor'),
-        step('06', '#ff2e63', 'Kill the apex', 'Survive 5:00, then destroy the apex to keep all loot. Dying keeps half. Afterwards the world breeds its best machines and resists your favourite damage type.', 'tesla')),
+        step('05', '#ff2bd6', 'Stay connected', 'Blocks that lose their link to the cab fall off. Steel plates take 40% of hits on their neighbours. Battery packs feed arc welders and laser cutters; nailguns side by side fire faster.', 'armor'),
+        step('06', '#ff2e63', 'Kill the apex', 'Survive 5:00, then destroy the apex to keep all loot. Dying keeps half. Afterwards the sector breeds its best machines and toughens up against your favourite tool.', 'tesla')),
       el('h2', null, 'Between runs'),
-      el('p', { class: 'sub' }, 'In the garage, fabricate permanent blocks and arrange them on the grid. Workshop upgrades make every block of a type stronger. Rustlands is rich in scrap, the Crystal Tundra in cryo-crystal, the Magma Rift in pyro-ore.'),
+      el('p', { class: 'sub' }, 'In the garage, fabricate permanent blocks and arrange them on the grid. Workshop upgrades make every block of a type stronger. The Junkyard is rich in scrap metal, Cold Storage in lens glass, the Foundry in propane.'),
       el('div', { class: 'row', style: 'margin-top:12px' }, el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back'))));
   }
 
@@ -330,7 +333,7 @@ export class App {
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
         toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
         toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
-        toggle('Firing arcs', 'Show where each weapon fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
+        toggle('Firing arcs', 'Show where each tool fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
         toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
         toggle('Screen shake', 'Shake the camera on hits and explosions.', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
       el('h2', null, 'Back up your save'),
@@ -428,8 +431,8 @@ export class App {
       el('div', { class: 'meter' + (bad ? ' bad' : '') }, el('div', { class: 'ml' }, label, el('b', null, val)), el('div', { class: 'mt' }, el('div', { class: 'mf', style: `width:${clamp(frac, 0.02, 1) * 100}%` })));
     const warn: string[] = [];
     if (!vs.thrust) warn.push('No propulsion: add wheels, tracks or hover pads.');
-    if (vs.powerFactor < 1) warn.push(`Power overload: weapons fire at ${Math.round(vs.powerFactor * 100)}%. Add batteries.`);
-    if (!vs.weapons.length) warn.push('No weapons.');
+    if (vs.powerFactor < 1) warn.push(`Power overload: tools fire at ${Math.round(vs.powerFactor * 100)}%. Add batteries.`);
+    if (!vs.weapons.length) warn.push('No tools mounted.');
     const stats = el('div', null,
       el('div', { class: 'meters' },
         meter('TOP SPEED', String(Math.round(vs.speed)), vs.speed / 290),
@@ -442,7 +445,7 @@ export class App {
     const pw = Math.max(240, Math.min(this.garageMaxW() - 36, 560));
     this.preview.render(s.build, pw, Math.round(pw * 0.62));
     const preview = el('div', { class: 'preview' }, this.preview.canvas,
-      el('p', null, 'Firing coverage. Each cone shows where a weapon can hit; rings are 360° turrets. Gaps are where enemies reach you unopposed. Tap a weapon twice to turn it.'));
+      el('p', null, 'Tool coverage. Each cone shows where a tool can hit; rings are 360° tools. Gaps are where enemies reach you unopposed. Tap a tool twice to turn it.'));
 
     // right column
     const exp = T.gridExpansions.find(g => g.r === s.gridR + 1);
@@ -552,7 +555,7 @@ export class App {
       el('div', { class: 'center' }, el('div', { class: 'kicker' }, fresh ? 'Bolted on' : 'New block'),
         el('div', { class: 'lvl-title', style: 'font-size:clamp(24px,4vw,34px)' }, fresh ? B[t].name + ' placed' : 'Place your ' + B[t].name)),
       el('p', { class: 'hint', style: 'margin:8px 0 14px' }, fresh
-        ? (B[t].dir ? 'Tap any weapon to turn it. The triangle shows where it fires.' : 'Tap any weapon to turn it, or continue.')
+        ? (B[t].dir ? 'Tap any tool to turn it. The arrow shows where it fires.' : 'Tap any tool to turn it, or continue.')
         : 'Tap a glowing slot next to your machine.'),
       this.gridView(run.V.list, rlim, { valid, fresh, maxW: Math.max(260, maxW), onTap }),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:18px' },
@@ -591,7 +594,7 @@ export class App {
     const big = (v: string, l: string, c?: string) => el('div', { class: 'bigstat' }, el('div', { class: 'v', style: c ? `color:${c}` : '' }, v), el('div', { class: 'l' }, l));
     this.show('solid', el('div', { class: 'wrap screen-in' },
       el('div', { class: 'kicker', style: `color:${Wd.theme.accent}` }, Wd.name + ' · debrief'),
-      el('h1', { style: `color:${r.won ? 'var(--acid)' : 'var(--red)'};text-shadow:0 0 26px ${r.won ? 'rgba(245,255,59,.5)' : 'rgba(255,46,99,.5)'}` }, r.won ? 'APEX DESTROYED' : 'MACHINE DESTROYED'),
+      el('h1', { style: `color:${r.won ? 'var(--acid)' : 'var(--red)'};text-shadow:0 0 26px ${r.won ? 'rgba(245,255,59,.5)' : 'rgba(255,46,99,.5)'}` }, r.won ? 'APEX DESTROYED' : 'TRUCK WRECKED'),
       el('p', { class: 'sub', style: 'margin-top:10px' }, r.won ? 'All loot kept. The world grows one tier stronger.' : 'Half of the loot was salvaged.'),
       el('div', { class: 'bigstats' },
         big(fmtTime(r.t), 'SURVIVED'), big(String(r.level), 'LEVEL'), big(String(r.kills), 'KILLS'),

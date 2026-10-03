@@ -8,11 +8,11 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/*.png'],
+      includeAssets: ['icons/*.png', 'charles/*.png'],
       manifest: {
-        name: 'Scrap Evolution',
-        short_name: 'Scrap Evo',
-        description: 'Build a block machine, survive the waves, face worlds that evolve against you.',
+        name: 'Charles Projects',
+        short_name: 'Charles',
+        description: 'Captain Charles builds a workshop truck from blocks and fights off evolving machines.',
         theme_color: '#05060b',
         background_color: '#05060b',
         display: 'standalone',

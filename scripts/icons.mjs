@@ -1,36 +1,25 @@
-// Renders the app icons with headless Chromium. Run: node scripts/icons.mjs
+// Renders the app icons (Charles on a neon grid) with headless Chromium.
+// Run: node scripts/icons.mjs   (needs playwright)
 import { chromium } from 'playwright';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
-const svg = (pad) => `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="40%" r="75%"><stop offset="0" stop-color="#1a0d2e"/><stop offset="1" stop-color="#05060b"/></radialGradient>
-    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#00f0ff" stroke-opacity=".12" stroke-width="2"/></pattern>
-  </defs>
-  <rect width="512" height="512" fill="url(#bg)"/>
-  <rect width="512" height="512" fill="url(#grid)"/>
-  <g transform="translate(256 256) scale(${1 - pad}) translate(-256 -256)" filter="url(#glow)" fill="#0a0d16" stroke-width="12" stroke-linejoin="round">
-    <path d="M196 96h120l-0 0v100H196z" stroke="#ffd166"/>
-    <path d="M232 40h48v56h-48z" stroke="#ffd166"/>
-    <path d="M96 196h100v120H96z" stroke="#9fb4cc"/>
-    <path d="M316 196h100v120H316z" stroke="#9fb4cc"/>
-    <path d="M196 316h120v100H196z" stroke="#ff2bd6"/>
-    <path d="M256 186L326 226V286L256 326L186 286V226Z" stroke="#f5ff3b" stroke-width="16"/>
-    <path d="M256 222L292 243V269L256 290L220 269V243Z" fill="#f5ff3b" stroke="none"/>
-  </g>
-</svg>`;
+const portrait = 'data:image/png;base64,' + readFileSync('public/charles/portrait.png').toString('base64');
+const html = (size, pad) => `<html><body style="margin:0">
+<div style="width:${size}px;height:${size}px;position:relative;overflow:hidden;
+  background:radial-gradient(circle at 50% 38%, #3a0f52 0%, #12081f 55%, #05060b 100%);">
+  <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(0,240,255,.16) 2px,transparent 2px),linear-gradient(90deg,rgba(0,240,255,.16) 2px,transparent 2px);background-size:${size / 12}px ${size / 12}px"></div>
+  <div style="position:absolute;left:0;right:0;bottom:${size * 0.08}px;height:${size * 0.04}px;background:#ff2bd6;box-shadow:0 0 ${size * 0.06}px #ff2bd6"></div>
+  <img src="${portrait}" style="position:absolute;left:50%;bottom:${size * 0.1}px;height:${size * (1 - pad) * 0.86}px;transform:translateX(-50%);
+    image-rendering:pixelated;filter:drop-shadow(0 0 ${size * 0.03}px rgba(0,240,255,.8))">
+</div></body></html>`;
 
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const out = [
-  ['icon-512.png', 512, 0.06], ['icon-192.png', 192, 0.06], ['apple-touch-icon.png', 180, 0.08], ['icon-maskable-512.png', 512, 0.28],
-];
-for (const [name, size, pad] of out) {
+for (const [name, size, pad] of [['icon-512.png', 512, 0.05], ['icon-192.png', 192, 0.05], ['apple-touch-icon.png', 180, 0.05], ['icon-maskable-512.png', 512, 0.3]]) {
   await page.setViewportSize({ width: size, height: size });
-  await page.setContent(`<html><body style="margin:0;background:#05060b">${svg(pad).replace('width="512" height="512"', `width="${size}" height="${size}"`)}</body></html>`);
-  writeFileSync(`public/icons/${name}`, await page.screenshot({ type: 'png', omitBackground: false }));
+  await page.setContent(html(size, pad));
+  await page.waitForTimeout(100);
+  writeFileSync(`public/icons/${name}`, await page.screenshot({ type: 'png' }));
 }
 await browser.close();
 console.log('icons written');

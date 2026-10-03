@@ -1,10 +1,10 @@
 // IndexedDB save storage with a localStorage mirror as a fallback.
 import { defaultSave, hydrate, serialize, validSave, type Save } from './save';
 
-const DB_NAME = 'scrap-evolution';
+const DB_NAME = 'charles-projects';
 const STORE = 'saves';
 const KEY = 'main';
-const LS_KEY = 'scrapEvolution.v1'; // same key as the prototype
+const LS_KEY = 'charlesProjects.v1'; // own key, so it never shares a save with Scrap Evolution on the same host
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

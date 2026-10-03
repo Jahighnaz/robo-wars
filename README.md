@@ -1,4 +1,10 @@
-# Scrap Evolution
+# Charles Projects
+
+A workshop-themed version of Scrap Evolution: Captain Charles rides his block-built truck as a pixel-art bobblehead, and every tool is from the shop: nailguns, saw launchers, hot glue guns, laser cutters, arc welders and plasma cutters. Sectors are the Junkyard, Cold Storage and the Foundry. Same rules and tuned numbers as Scrap Evolution; it keeps its own save (prototype save codes still import).
+
+---
+
+## Scrap Evolution (base game)
 
 An iPad-first, one-finger survivor game: build a vehicle from blocks, survive five minutes of waves, destroy the apex. Enemies are built from the same blocks as you, and every world breeds its most successful machines against the way you play.
 

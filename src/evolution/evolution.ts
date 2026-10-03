@@ -1,5 +1,5 @@
 // World evolution: adaptive resistance + a genetic algorithm over enemy genomes.
-import { DTYPES, WORLDS, type Cell, type DType } from '../data';
+import { DNAME, DTYPES, WORLDS, type Cell, type DType } from '../data';
 import { clamp, DIRS } from '../core/math';
 import type { Rng } from '../core/rng';
 import { compileSpecies, describeSpecies, makeSpecies, nameFor, type Species } from '../enemies/species';
@@ -98,8 +98,8 @@ export function evolveWorld(save: Save, wk: string, killsBy: Partial<Record<DTyp
       if (share > 0.4) {
         const before = W.res[t];
         W.res[t] = Math.min(0.35, +(W.res[t] + 0.05).toFixed(2));
-        if (W.res[t] > before) lines.push('The machines adapted to your ' + t + ' weapons: +5% resistance (now ' + Math.round(W.res[t] * 100) + '%).');
-        else lines.push('Resistance to ' + t + ' is maxed at 35%. Mix up your weapons.');
+        if (W.res[t] > before) lines.push('The machines adapted to your ' + DNAME[t] + ' tools: +5% resistance (now ' + Math.round(W.res[t] * 100) + '%).');
+        else lines.push('Resistance to ' + DNAME[t] + ' damage is maxed at 35%. Mix up your tools.');
       } else if (W.res[t] > 0 && share < 0.15) {
         W.res[t] = Math.max(0, +(W.res[t] - 0.02).toFixed(2));
       }
