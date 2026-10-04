@@ -9,10 +9,14 @@
 // Headless and seeded: the host simulates, clients only render snapshots.
 import { Rng } from '../core/rng';
 import { cellAt, DIRS, flipBelts, generateBoard, isSolid, OPP, wallBlocked, type Board, type Cell } from './board';
-import { CARD_IDS, R, TEAM_COLORS, type CardId } from './data';
+import { CARD_IDS, R, TEAM_COLORS, type CardId, type ChassisDef } from './data';
 
 /** Register length in seconds; card and upgrade cooldowns, jams and respawns scale with it. */
-export interface MatchOptions { tick?: number }
+export interface MatchOptions {
+  tick?: number;
+  /** equal specs (crew PvP): the chassis is only a look; same hull, cooldowns and no perks for everyone */
+  equal?: boolean;
+}
 
 export interface PlayerSpec { pid: string; name: string; chassis: string; bot?: boolean; color?: string }
 
@@ -78,10 +82,12 @@ export class Match {
   readonly tick: number;
   readonly pace: number;
   readonly timeLimit: number;
+  readonly equal: boolean;
 
   constructor(readonly seed: number, players: PlayerSpec[], opts: MatchOptions = {}) {
     this.tick = Math.max(1, opts.tick ?? R.match.tick);
     this.pace = this.tick / R.match.tick;
+    this.equal = !!opts.equal;
     // a long register needs a longer clock: at least 45 registers
     this.timeLimit = Math.max(R.match.timeLimit, Math.round(45 * this.tick));
     this.rng = new Rng(seed ^ 0x9e3779b9);
@@ -91,7 +97,7 @@ export class Match {
   }
 
   private addRobot(p: PlayerSpec, i: number): void {
-    const ch = R.chassis[p.chassis] ?? R.chassis.clank;
+    const ch = this.specOf(R.chassis[p.chassis] ? p.chassis : 'clank');
     const st = this.board.starts[i];
     const cds = {} as Record<CardId, number>;
     for (const k of CARD_IDS) cds[k] = 0;
@@ -154,7 +160,13 @@ export class Match {
   }
 
   // ------------------------------------------------------------ player actions
-  cardCd(rb: Robot, card: CardId): number { return R.cards[card].cd * R.chassis[rb.chassis].cdMul * this.pace; }
+  /** The rules a robot plays by: its chassis, or the standard robot in an equal-specs battle. */
+  specOf(chassis: string): ChassisDef {
+    const ch = R.chassis[chassis] ?? R.chassis.clank;
+    return this.equal ? { ...ch, hp: R.standard.hp, cdMul: 1, starts: [], heavy: false, ram: 0, pick: 0, miner: false } : ch;
+  }
+  spec(rb: Robot): ChassisDef { return this.specOf(rb.chassis); }
+  cardCd(rb: Robot, card: CardId): number { return R.cards[card].cd * this.spec(rb).cdMul * this.pace; }
   upgradeCd(up: string): number { return (R.upgrades[up].cd ?? 0) * this.pace; }
 
   canPlay(rb: Robot, card: CardId): boolean {
@@ -233,7 +245,7 @@ export class Match {
       if (occ) {
         if (!this.step(occ, d, mover)) return false;
         this.emit({ k: 'move', id: occ.id, push: true });
-        const ram = mover === rb ? R.chassis[rb.chassis].ram : 0;
+        const ram = mover === rb ? this.spec(rb).ram : 0;
         if (ram) this.damage(occ, ram, rb);
       }
     }
@@ -250,7 +262,7 @@ export class Match {
 
   /** Shove up to n cells; stops at walls, solid tiles and robots. Heavy chassis don't budge. */
   private knockback(rb: Robot, d: number, n: number): void {
-    if (R.chassis[rb.chassis].heavy) return;
+    if (this.spec(rb).heavy) return;
     for (let i = 0; i < n && rb.alive; i++) {
       const cell = this.cell(rb);
       if (wallBlocked(this.board, cell, d)) break;
@@ -508,7 +520,7 @@ export class Match {
     for (const rb of [...this.robots].sort((x, y) => x.prio - y.prio)) {
       if (!rb.alive) continue;
       this.fireLaser(rb);
-      const pick = R.chassis[rb.chassis].pick;
+      const pick = this.spec(rb).pick;
       if (pick && rb.alive && !wallBlocked(b, this.cell(rb), rb.d)) {
         const o = this.robotAt(rb.r + DIRS[rb.d].dr, rb.c + DIRS[rb.d].dc, rb);
         if (o) { this.emit({ k: 'pick', id: rb.id, target: o.id }); this.damage(o, pick, rb); }
@@ -519,7 +531,7 @@ export class Match {
       if (!rb.alive) continue;
       const cell = this.cell(rb), idx = cell.r * b.cols + cell.c;
       if (cell.type === 'energy' && (!this.drained.has(idx) || this.register === 5)) {
-        const n = R.chassis[rb.chassis].miner ? 2 : 1;
+        const n = this.spec(rb).miner ? 2 : 1;
         rb.energy += n;
         this.drained.set(idx, R.match.energyRecharge);
         this.emit({ k: 'energy', id: rb.id, n });

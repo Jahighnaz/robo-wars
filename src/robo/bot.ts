@@ -197,7 +197,7 @@ export class Bots {
     // face towards the target's half of the board
     const want = Math.abs(dc) >= Math.abs(dr) ? (dc > 0 ? 1 : 3) : (dr > 0 ? 2 : 0);
     if (d === want) s += 2.5;
-    if (R.chassis[rb.chassis].pick && r + DIRS[d].dr === target.r && c + DIRS[d].dc === target.c) s += 8;
+    if (m.spec(rb).pick && r + DIRS[d].dr === target.r && c + DIRS[d].dc === target.c) s += 8;
     // energy pull when we can't afford anything
     for (const cell of m.board.cells) {
       if (cell.type !== 'energy' || m.drained.has(cell.r * m.board.cols + cell.c)) continue;

@@ -44,6 +44,8 @@ const schema = z.object({
   chassis: z.record(z.string(), chassis),
   upgrades: z.record(z.string(), upgrade),
   slots: z.object({ passive: z.number().int(), active: z.number().int() }),
+  /** equal-specs battles (crew PvP): every robot gets this hull and no chassis perks */
+  standard: z.object({ hp: z.number().int().positive() }),
 });
 
 export const R = schema.parse(json);

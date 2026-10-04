@@ -211,5 +211,8 @@
   "slots": {
     "passive": 3,
     "active": 3
+  },
+  "standard": {
+    "hp": 10
   }
 }

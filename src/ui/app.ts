@@ -146,7 +146,7 @@ export class App {
     let body: HTMLElement;
     if (c.status === 'off' || c.status === 'error') {
       body = el('div', null,
-        c.status === 'error' ? el('p', { class: 'err' }, c.error) : el('p', { class: 'sub' }, 'Same Wi-Fi: one device hosts a crew, the others join with its code. Then the host opens the arena and everyone fights live. Empty seats get bots.'),
+        c.status === 'error' ? el('p', { class: 'err' }, c.error) : el('p', { class: 'sub' }, 'Same Wi-Fi: one device hosts a crew, the others join with its code. Then the host opens the arena and everyone fights live. Empty seats get bots. Crew battles are fair fights: every robot has the same hull, cooldowns and no perks; your pick is only the look.'),
         el('div', { class: 'row' },
           el('button', { class: 'btn', onclick: () => { const code = s.crewCode || newCrewCode(); s.crewCode = code; this.store(); void c.host(code); } }, 'Host a crew'),
           codeIn,
@@ -163,14 +163,14 @@ export class App {
         el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
         c.isHost
           ? (L ? el('div', null,
-            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns (set both under Battle bots).'),
+            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · equal specs for every robot (set bots and turns under Battle bots).'),
             el('div', { class: 'row' },
               el('button', { class: 'btn primary', onclick: () => this.startHost() }, 'Start the battle ▸'),
               el('button', { class: 'btn ghost sm', onclick: () => this.closeLobby() }, 'Close arena')))
             : el('button', { class: 'btn primary', style: 'margin-top:10px', onclick: () => this.openLobby() }, 'Open the arena'))
           : RL?.open
             ? el('div', null,
-              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns.'),
+              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns · equal specs: your robot is only a look.'),
               seated ? el('button', { class: 'btn ghost', onclick: () => c.send({ k: 'rw_leave', pid: s.pilot.id }) }, 'Leave seat · waiting for the host')
                 : el('button', { class: 'btn primary', onclick: () => c.send({ k: 'rw_join', seat: { pid: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis } }) }, 'Take a seat ▸'))
             : el('p', { class: 'sub' }, 'Waiting for the host to open the arena.'));
@@ -224,7 +224,7 @@ export class App {
         const idx = m.players.findIndex(p => p.pid === s.pilot.id);
         if (idx < 0) break;
         this.remoteLobby = null;
-        this.match = new Match(m.seed, m.players, { tick: m.tick });
+        this.match = new Match(m.seed, m.players, { tick: m.tick, equal: m.equal });
         this.bots = null;
         this.role = 'client';
         this.localId = idx;
@@ -279,12 +279,13 @@ export class App {
     const players = [...humans, ...this.botSpecs(botN, new Set(humans.map(h => h.name)), humans.map(h => h.chassis))];
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
     const seed = timeSeed();
-    this.match = new Match(seed, players, { tick: this.save.settings.tick });
+    // crew battles are fair fights: every robot has the same specs, the chassis is only a look
+    this.match = new Match(seed, players, { tick: this.save.settings.tick, equal: true });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'host';
     this.localId = 0;
     this.lobby = null;
-    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick });
+    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick, equal: true });
     this.beginMatch();
   }
 
@@ -304,7 +305,7 @@ export class App {
     this.buildHud();
     music.setMood('run');
     const me = m.robots[this.localId];
-    this.toast(`${R.chassis[me.chassis].name} online · lasers fire every ${m.tick}s`, 2600);
+    this.toast(`${R.chassis[me.chassis].name} online · lasers fire every ${m.tick}s` + (m.equal ? ' · equal specs' : ''), 2600);
   }
 
   // ================================================================ actions

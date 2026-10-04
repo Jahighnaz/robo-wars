@@ -125,4 +125,21 @@ describe('robo rally rules, live', () => {
       expect(total).toBeGreaterThan(3); // they actually fight
     }
   });
+
+  it('crew battles give every robot the same specs', () => {
+    const m = new Match(9, ['clank', 'bruiser', 'roller', 'whirl', 'picks'].map((ch, i) => ({ pid: 'p' + i, name: 'P' + i, chassis: ch })), { equal: true });
+    for (const rb of m.robots) {
+      expect(rb.maxHp).toBe(R.standard.hp);
+      expect(rb.passive.length + rb.active.length).toBe(0);
+      expect(m.cardCd(rb, 'move1')).toBe(m.cardCd(m.robots[0], 'move1'));
+      const sp = m.spec(rb);
+      expect([sp.heavy, sp.ram, sp.pick, sp.miner].some(Boolean)).toBe(false);
+    }
+    // the pickaxe stays a look: no swing damage in an equal battle
+    blank(m);
+    place(m, 4, 5, 5, 1); const t = place(m, 0, 5, 6, 0); // right in front of Picks
+    for (const o of m.robots.slice(1, 4)) Object.assign(o, { alive: false, out: true });
+    m.update(m.tick + 0.01);
+    expect(t.hp).toBe(R.standard.hp - R.match.laserDmg);
+  });
 });
