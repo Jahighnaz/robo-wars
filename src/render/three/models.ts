@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /** Turn so the model's face looks down +z (the arena turns +z to the facing direction). */
-const FRONT_YAW: Record<string, number> = { clank: 0, bruiser: 0, roller: 0, whirl: -0.55, picks: 0 };
+const FRONT_YAW: Record<string, number> = { clank: 0, bruiser: 0, roller: 0, whirl: -Math.PI / 2, picks: 0 };
 
 const loader = new GLTFLoader();
 loader.setMeshoptDecoder(MeshoptDecoder);
