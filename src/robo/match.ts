@@ -42,6 +42,8 @@ export interface Robot {
   prio: number;
   /** classic: the register count when this robot last played a card */
   played: number;
+  /** energy earned this round (capped at match.roundIncome) */
+  earned: number;
 }
 
 export type MatchEvent =
@@ -54,7 +56,7 @@ export type MatchEvent =
   | { k: 'shield'; id: number }
   | { k: 'fall'; id: number }
   | { k: 'wreck'; id: number }
-  | { k: 'kill'; killer: number; victim: number }
+  | { k: 'kill'; killer: number; victim: number; n: number }
   | { k: 'respawn'; id: number }
   | { k: 'register'; n: number }
   | { k: 'belt' } | { k: 'gear' } | { k: 'push' }
@@ -123,7 +125,7 @@ export class Match {
       hp: ch.hp, maxHp: ch.hp, lives: R.match.lives, energy: R.match.startEnergy,
       alive: true, out: false, respawnT: 0, guardT: R.match.spawnGuard, jamT: 0, busyT: 0,
       cds, passive: [], active: [], acd: {}, shieldUp: true,
-      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1, played: -1,
+      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1, played: -1, earned: 0,
     };
     for (const u of ch.starts) this.install(rb, u);
     this.robots.push(rb);
@@ -306,6 +308,14 @@ export class Match {
     }
   }
 
+  /** Pay energy, up to this round's allowance; returns what was paid. */
+  earn(rb: Robot, n: number): number {
+    const paid = Math.max(0, Math.min(n, R.match.roundIncome - rb.earned));
+    rb.earned += paid;
+    rb.energy += paid;
+    return paid;
+  }
+
   // ------------------------------------------------------------ damage
   damage(target: Robot, n: number, src: Robot | null): void {
     if (!target.alive || target.guardT > 0 || n <= 0) return;
@@ -332,8 +342,8 @@ export class Match {
     const killer = how !== 'self' && rb.lastHitBy >= 0 && this.t - rb.lastHitT <= R.match.creditWindow ? this.robots[rb.lastHitBy] : null;
     if (killer && killer !== rb) {
       killer.kills++;
-      killer.energy += R.match.killEnergy;
-      this.emit({ k: 'kill', killer: killer.id, victim: rb.id });
+      const n = this.earn(killer, R.match.killEnergy);
+      this.emit({ k: 'kill', killer: killer.id, victim: rb.id, n });
     }
     rb.lastHitBy = -1;
   }
@@ -560,9 +570,9 @@ export class Match {
     for (const rb of this.robots) {
       if (!rb.alive) continue;
       const cell = this.cell(rb), idx = cell.r * b.cols + cell.c;
-      if (cell.type === 'energy' && (!this.drained.has(idx) || this.register === 5)) {
-        const n = this.spec(rb).miner ? 2 : 1;
-        rb.energy += n;
+      if (cell.type === 'energy' && (!this.drained.has(idx) || this.register === 5) && rb.earned < R.match.roundIncome) {
+        // a robot that has earned its share this round leaves the cube charged for someone else
+        const n = this.earn(rb, this.spec(rb).miner ? 2 : 1);
         this.drained.set(idx, this.classic ? R.classic.energyRecharge : R.match.energyRecharge);
         this.emit({ k: 'energy', id: rb.id, n });
       }
@@ -570,6 +580,7 @@ export class Match {
     }
     for (const [idx, n] of this.drained) { if (n <= 1) this.drained.delete(idx); else this.drained.set(idx, n - 1); }
     this.register = (this.register % 5) + 1;
+    if (this.register === 1) for (const rb of this.robots) rb.earned = 0; // a new round, a new income allowance
     this.regCount++;
     if (this.classic) {
       // cooldowns count down in registers; a new round opens the shop

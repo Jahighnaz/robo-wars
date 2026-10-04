@@ -303,3 +303,4 @@ textarea {
 .roundbar b { font-family: var(--display); letter-spacing: 1px; color: var(--cyan); }
 .roundbar.open { border-color: var(--acid); background: rgba(245,255,59,0.06); }
 .roundbar.open b { color: var(--acid); }
+.energy .income { margin-left: 8px; font-family: var(--display); font-size: 10px; color: var(--muted); }

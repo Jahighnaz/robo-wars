@@ -429,7 +429,7 @@ export class App {
         case 'turn': if (e.id === this.localId) sfx.turn(); break;
         case 'kill': {
           const k = m.robots[e.killer], v = m.robots[e.victim];
-          if (k && v) this.toast(e.killer === this.localId ? `You scrapped ${v.name}! +${R.match.killEnergy} ⚡` : e.victim === this.localId ? `${k.name} scrapped you` : `${k.name} scrapped ${v.name}`, 1800);
+          if (k && v) this.toast(e.killer === this.localId ? `You scrapped ${v.name}!` + (e.n ? ` +${e.n} ⚡` : ' (round income maxed)') : e.victim === this.localId ? `${k.name} scrapped you` : `${k.name} scrapped ${v.name}`, 1800);
           break;
         }
         case 'shop': this.toast(`Round ${e.n}: shop open`, 1600); sfx.buy(); break;
@@ -513,11 +513,11 @@ export class App {
     // classic: the shop opens by itself when a round starts and closes when it runs
     if (m.classic && m.phase !== this.lastPhase) { this.lastPhase = m.phase; if (!me.out) this.setShop(m.phase === 'shop'); }
     // things that change rarely: rebuild on a signature change
-    const sig = [me.hp, me.lives, me.energy, me.alive, me.out, me.passive.join(), me.active.join(), m.phase, m.round, m.robots.map(r => `${r.kills}/${r.lives}/${r.hp}/${r.alive}`).join(), this.shopOpen].join('|');
+    const sig = [me.hp, me.lives, me.energy, me.earned, me.alive, me.out, me.passive.join(), me.active.join(), m.phase, m.round, m.robots.map(r => `${r.kills}/${r.lives}/${r.hp}/${r.alive}`).join(), this.shopOpen].join('|');
     if (sig !== this.hudSig) {
       this.hudSig = sig;
       H.hull.replaceChildren(el('span', { class: 'lbl' }, 'HULL'), el('span', { class: 'pips' }, Array.from({ length: me.maxHp }, (_, i) => el('i', { class: i < me.hp ? (me.hp <= 3 ? 'low' : 'on') : '' }))));
-      H.energy.replaceChildren(el('span', { class: 'lbl' }, 'ENERGY'), el('b', null, '⚡ ' + me.energy), el('span', { class: 'lives' }, '♥'.repeat(Math.max(0, me.lives)) + '♡'.repeat(Math.max(0, R.match.lives - me.lives))));
+      H.energy.replaceChildren(el('span', { class: 'lbl' }, 'ENERGY'), el('b', null, '⚡ ' + me.energy), el('span', { class: 'income', title: 'Energy earned this round' }, `+${me.earned}/${R.match.roundIncome}`), el('span', { class: 'lives' }, '♥'.repeat(Math.max(0, me.lives)) + '♡'.repeat(Math.max(0, R.match.lives - me.lives))));
       H.passives.replaceChildren(...me.passive.map(p => el('span', { class: 'chip' }, R.upgrades[p].name)));
       H.status.textContent = me.out ? 'OUT OF LIVES · watching' : !me.alive ? 'REBOOTING…' : R.chassis[me.chassis].name;
       H.actives.replaceChildren(...me.active.map((up, i) => el('button', { class: 'abtn', 'data-up': up, onpointerdown: (e: Event) => { e.preventDefault(); this.useUpgrade(up); } },
@@ -662,7 +662,7 @@ export class App {
         step('2b', 'Classic mode', 'One card per register, like the board game. Move 2 recharges in 3 registers, Move 3 and Back up in 8 (the number on the card counts down). Every 5 registers a new round starts with a shop: buy upgrades, then the host taps Start round. Energy cubes refill after 8 registers.', 'var(--cyan)'),
         step('3', 'Watch your step', 'Pits and the edge of the floor cost a life. Walls and crates stop movement and lasers. You can push other robots, into pits too.', 'var(--red)'),
         step('4', 'Upgrades', 'Energy buys cards from the Robo Rally deck: Rear Laser, Double Barrel, Rail Gun, Deflector Shield, Mirror Plating, Hover, and actives (Q/E/R): Rocket, EMP, Teleport, Overload, Kamikaze, Reverse Gear. The heavier the weapon, the longer its cooldown.', 'var(--mag)'),
-        step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the clock runs out (at least ${fmtTime(R.match.timeLimit)}; longer with long registers). A kill pays ${R.match.killEnergy} energy.`, 'var(--green)')),
+        step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the clock runs out (at least ${fmtTime(R.match.timeLimit)}; longer with long registers). A kill pays ${R.match.killEnergy} energy. Income is capped at ${R.match.roundIncome} energy per robot per round (5 registers), from cubes and kills together.`, 'var(--green)')),
       el('div', { class: 'row', style: 'margin-top:20px' }, el('button', { class: 'btn', onclick: () => this.showHub() }, '◂ Back'))));
   }
 

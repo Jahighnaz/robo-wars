@@ -47,7 +47,7 @@ export function snapshot(m: Match, ev: MatchEvent[]): Snapshot {
   return {
     t: r2(m.t), reg: m.register, tickT: r2(m.tickT), over: m.over, winner: m.winner, rev: m.revT > 0, rc: m.regCount, shop: m.phase === 'shop',
     drained: [...m.drained.keys()],
-    rb: m.robots.map(r => [r.r, r.c, r.d, r.hp, r.lives, r.energy, Number(r.alive) | (Number(r.out) << 1) | (Number(r.shieldUp) << 2), r2(r.respawnT), r2(r.guardT), r2(r.jamT), r.kills, r.deaths, r.played]),
+    rb: m.robots.map(r => [r.r, r.c, r.d, r.hp, r.lives, r.energy, Number(r.alive) | (Number(r.out) << 1) | (Number(r.shieldUp) << 2), r2(r.respawnT), r2(r.guardT), r2(r.jamT), r.kills, r.deaths, r.played, r.earned]),
     cds: m.robots.map(r => CARD_IDS.map(k => r2(r.cds[k]))),
     up: m.robots.map(r => ({ p: r.passive, a: r.active, acd: r.active.map(k => r2(r.acd[k] ?? 0)) })),
     ev,
@@ -67,6 +67,7 @@ export function applySnapshot(m: Match, s: Snapshot): MatchEvent[] {
     r.alive = !!(a[6] & 1); r.out = !!(a[6] & 2); r.shieldUp = !!(a[6] & 4);
     [r.respawnT, r.guardT, r.jamT, r.kills, r.deaths] = a.slice(7);
     r.played = a[12] ?? -1;
+    r.earned = a[13] ?? 0;
     CARD_IDS.forEach((k, j) => { r.cds[k] = s.cds[i]?.[j] ?? 0; });
     const u = s.up[i];
     if (u) { r.passive = u.p; r.active = u.a; r.acd = {}; u.a.forEach((k, j) => { r.acd[k] = u.acd[j] ?? 0; }); }

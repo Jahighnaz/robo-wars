@@ -6,6 +6,7 @@ A live, real-time take on Robo Rally, branched from Charles Projects (which live
 - Crew PvP uses `MatchOptions.equal`: rules read `m.spec(rb)` (never `R.chassis` directly) so every robot gets `robo.json` `standard`. Chassis perks only apply vs bots.
 - Classic mode is `MatchOptions.classic`: one card per register (`Robot.played` vs `Match.regCount`), card/upgrade cooldowns in registers (`robo.json` `classic`), a `phase: 'shop'` at each round start that freezes `update()` until the host (robot 0) calls `ready()`.
 - Turn length is `MatchOptions.tick` (player setting, default 10 s). `robo.json` cooldowns are tuned at `match.tick` (2 s) and scale by `Match.pace`; use `m.cardCd()`/`m.upgradeCd()`, never raw json cooldowns.
+- Energy income goes through `Match.earn()`, capped at `match.roundIncome` per robot per round (reset when the register wraps to 1). Never add to `rb.energy` directly except when spending.
 - Tunable numbers live in `src/data/robo.json` (validated with zod in `src/robo/data.ts`).
 - Board generation must stay deterministic for a seed: clients rebuild the host's board from it.
 - Multiplayer: the host simulates; `src/net/robonet.ts` sends JSON snapshots (`SNAP_HZ`) and clients only copy them into a mirror `Match` (never `update()` it). Inputs are `rw_in` actions; `HOST_ONLY` messages are not relayed by the crew host.

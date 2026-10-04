@@ -39,6 +39,8 @@ const schema = z.object({
     tick: z.number().positive(), lives: z.number().int().positive(), timeLimit: z.number().positive(), respawn: z.number(),
     spawnGuard: z.number(), startEnergy: z.number().int(), killEnergy: z.number().int(), stepTime: z.number().positive(),
     laserDmg: z.number(), boardLaserDmg: z.number(), creditWindow: z.number(), energyRecharge: z.number().int(),
+    /** most energy a robot can earn per round (5 registers), from cubes and kills together */
+    roundIncome: z.number().int().positive(),
   }),
   cards: z.record(z.string(), card),
   chassis: z.record(z.string(), chassis),

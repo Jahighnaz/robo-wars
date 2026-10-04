@@ -19,12 +19,13 @@
     "respawn": 3,
     "spawnGuard": 1.5,
     "startEnergy": 3,
-    "killEnergy": 2,
+    "killEnergy": 1,
     "stepTime": 0.22,
     "laserDmg": 1,
     "boardLaserDmg": 1,
     "creditWindow": 6,
-    "energyRecharge": 5
+    "energyRecharge": 5,
+    "roundIncome": 2
   },
   "cards": {
     "move1": {

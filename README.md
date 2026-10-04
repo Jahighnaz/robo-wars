@@ -26,7 +26,8 @@ Each robot is an animated billboard: Clank waddles, Bruiser rumbles, Roller boun
 - **Crew battles are fair fights:** every robot has the same hull (10), cooldowns and no perks; the chassis you pick is only its look and animation. Battles against bots keep the chassis perks.
 - **Turn length:** card and upgrade cooldowns, EMP jams and Reverse Gear scale with the turn length, so a battle lasts about the same number of turns whatever you pick. The clock is at least 5 minutes or 45 turns.
 - **Reading the board:** a big arrow in the robot's colour shows where it faces, and a faint line shows where its laser will hit at the next turn (yours brighter).
-- **Winning:** three lives each; last robot standing, or most kills when the clock runs out. A kill pays 2 energy.
+- **Energy:** cubes pay 1 (Picks mines 2 vs bots), a kill pays 1, and every robot earns at most 2 energy per round (5 registers) from all sources together; a robot that has earned its 2 leaves cubes charged for others. The HUD shows this round's income (+1/2).
+- **Winning:** three lives each; last robot standing, or most kills when the clock runs out.
 
 ## Crew battles (same Wi-Fi)
 
