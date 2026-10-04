@@ -14,7 +14,7 @@ Rules, board elements and upgrade cards follow our interactive Robo Rally projec
 | **Whirl** | sliding on its saw skirt | hovers over pits, ramming deals 2 |
 | **Picks** | crawling, pickaxe swinging | hits the robot in front for 3 every register, mines double energy |
 
-Each robot is an animated billboard: Clank waddles, Bruiser rumbles, Roller bounces and leans, Whirl hovers on a spinning saw, Picks inches along swinging its separate pickaxe arm.
+Each robot is a 3D model (`public/models/*.glb`, slimmed from the originals with `scripts/slim-models.sh`) that turns to face its direction and moves its own way: Clank waddles, Bruiser rumbles and rocks, Roller bounces and leans into its roll, Whirl spins on its drill as it slides, Picks inches along and lunges with its pickaxe. The hand-drawn art is the fallback while the models load.
 
 ## How a battle works
 

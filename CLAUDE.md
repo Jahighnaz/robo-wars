@@ -10,6 +10,6 @@ A live, real-time take on Robo Rally, branched from Charles Projects (which live
 - Tunable numbers live in `src/data/robo.json` (validated with zod in `src/robo/data.ts`).
 - Board generation must stay deterministic for a seed: clients rebuild the host's board from it.
 - Multiplayer: the host simulates; `src/net/robonet.ts` sends JSON snapshots (`SNAP_HZ`) and clients only copy them into a mirror `Match` (never `update()` it). Inputs are `rw_in` actions; `HOST_ONLY` messages are not relayed by the crew host.
-- Robots are billboards (`public/robots/*.png`, 512 px, bottom-centred); per-chassis motion is in `Arena3D.pose()`. Picks is two layers (`picks-body.png`, `picks-arm.png` with the pivot in `ARM_PIVOT`).
+- Robots are 3D models (`public/models/<chassis>.glb`, meshopt; prepare new ones with `scripts/slim-models.sh`), loaded and cloned in `src/render/three/models.ts` (`FRONT_YAW` turns each face to +z). `Arena3D.poseModel()` animates them from the same per-chassis `pose()`. The drawn billboards (`public/robots/*.png`) are the fallback until a model loads; `*-3d.png` are model renders for the UI.
 - Music: `src/audio/music.ts`, "Shop Floor Fever" (the owner likes it as it is: keep the notes and tempos, do not add other tracks unless asked). Board sounds: `src/audio/sfx.ts`.
 - Before pushing: `npm test` and `npm run build`.

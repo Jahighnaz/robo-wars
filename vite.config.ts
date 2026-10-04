@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/*.png', 'robots/*.png'],
+      includeAssets: ['icons/*.png', 'robots/*.png', 'models/*.glb'],
       manifest: {
         name: 'Robo Wars',
         short_name: 'Robo Wars',
@@ -26,7 +26,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,woff2,glb}'],
         cleanupOutdatedCaches: true,
       },
     }),

@@ -14,6 +14,8 @@ import { cellAt, DIRS, OPP, type Board } from '../../robo/board';
 import { R } from '../../robo/data';
 import type { Match, MatchEvent } from '../../robo/match';
 import { col, Pool } from './pool';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { robotModel, yawFor, type RobotModel } from './models';
 import { decalMaterial, glowMaterial, groundMaterial, neonMaterial, radialTexture, ringTexture, sawTexture } from './materials';
 
 export const CELL = 10;
@@ -33,6 +35,9 @@ interface View {
   fall: number; // >0 while falling into a pit / off the edge
   shown: boolean;
   dirX: number;
+  /** the 3D model once loaded (the drawing is the fallback until then) */
+  model: RobotModel | null;
+  yaw: number; spin: number;
 }
 
 interface Fx { kind: 'beam' | 'rocket' | 'ring' | 'flash' | 'spark' | 'column' | 'text'; t: number; max: number; a: THREE.Vector3; b: THREE.Vector3; color: THREE.Color; w: number; text?: string; vx?: number; vy?: number; vz?: number }
@@ -192,6 +197,13 @@ export class Arena3D {
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
+    // light for the robot models (the neon board is unlit and ignores it)
+    const pmrem = new THREE.PMREMGenerator(this.gl);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.35;
+    const key = new THREE.DirectionalLight(0xffffff, 1.25);
+    key.position.set(-60, 140, 90);
+    this.scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x1a1030, 0.55), key);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000).rotateX(-Math.PI / 2), groundMaterial(new THREE.Color(0x05060b), new THREE.Color(0xff2bd6)));
     ground.position.y = -6;
     this.scene.add(ground, this.boardGroup);
@@ -269,7 +281,7 @@ export class Arena3D {
     const b = m.board;
     for (const c of [...this.boardGroup.children]) this.boardGroup.remove(c);
     this.belts = []; this.gears = []; this.cubes = [];
-    for (const v of this.views) { this.scene.remove(v.sprite); if (v.arm) this.scene.remove(v.arm); }
+    for (const v of this.views) { this.scene.remove(v.sprite); if (v.arm) this.scene.remove(v.arm); if (v.model) this.scene.remove(v.model.root); }
     this.views = [];
     this.fx = [];
 
@@ -361,7 +373,14 @@ export class Arena3D {
         this.scene.add(arm);
       }
       const x = this.wx(rb.c), z = this.wz(rb.r);
-      this.views.push({ sprite: sp, arm, x, z, lx: x, lz: z, moving: 0, flash: 0, swing: 0, recoil: 0, fall: 0, shown: rb.alive, dirX: 0 });
+      const view: View = { sprite: sp, arm, x, z, lx: x, lz: z, moving: 0, flash: 0, swing: 0, recoil: 0, fall: 0, shown: rb.alive, dirX: 0, model: null, yaw: yawFor(rb.d), spin: 0 };
+      this.views.push(view);
+      const views = this.views;
+      void robotModel(rb.chassis, CELL * 1.4).then(md => {
+        if (!md || this.views !== views) return; // a new board was set meanwhile
+        view.model = md;
+        this.scene.add(md.root);
+      });
     }
     this.frame();
   }
@@ -548,7 +567,11 @@ export class Arena3D {
         (v.flash > 0 ? 0.6 : 1.12) * back * (rb.jamT > 0 ? 1.3 : 1),
         (v.flash > 0 ? 0.6 : 1.12) * back * (rb.jamT > 0 ? 1.6 : 1));
       mat.opacity = guard ? 0.45 : 1;
-      if (v.arm) {
+      if (v.model) {
+        sp.visible = false;
+        if (v.arm) v.arm.visible = false;
+        this.poseModel(v, rb.chassis, facing, pose, visible, fallK, scale, rb.guardT > 0 && Math.sin(t * 30) > 0, rb.jamT > 0, dt);
+      } else if (v.arm) {
         v.arm.visible = visible;
         v.arm.scale.copy(sp.scale);
         // the pivot sits partway up the body; follow the body's pose
@@ -641,6 +664,33 @@ export class Arena3D {
     void b;
   }
 
+  /** Place and animate a robot's 3D model: turn to face, the chassis motion, falls and hit flashes. */
+  private poseModel(v: View, chassis: string, facing: number, pose: { dx: number; dy: number; rot: number; sx: number; sy: number; arm: number }, visible: boolean, fallK: number, scale: number, blink: boolean, jammed: boolean, dt: number): void {
+    const md = v.model!;
+    md.root.visible = visible && !blink;
+    if (!visible) return;
+    // turn smoothly to the facing (shortest way round)
+    let d = yawFor(facing) - v.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    v.yaw += d * Math.min(1, dt * 12);
+    md.root.position.set(v.x, pose.dy * 0.6 - fallK * 9, v.z);
+    md.root.rotation.y = v.yaw;
+    // Whirl spins on its drill while it moves, then settles facing forward
+    if (chassis === 'whirl') {
+      if (v.moving > 0.2) v.spin += dt * 14 * v.moving;
+      else v.spin += Math.atan2(Math.sin(-v.spin), Math.cos(-v.spin)) * Math.min(1, dt * 6);
+    }
+    const b = md.body;
+    b.rotation.set(
+      v.moving * (chassis === 'wheels' ? 0.12 : chassis === 'treads' ? -0.06 : 0.04) + (v.swing > 0 ? Math.sin((1 - v.swing / 0.45) * Math.PI) * 0.45 : 0) + v.recoil * 0.6,
+      v.spin,
+      pose.rot * 1.3);
+    b.scale.set(scale * pose.sx, scale * pose.sy, scale * pose.sx);
+    // hit flash red, EMP jam blue
+    const er = v.flash > 0 ? 0.9 * (v.flash / 0.35) : 0, eb = jammed ? 0.35 + Math.sin(this.time * 12) * 0.15 : 0;
+    for (const m of md.mats) m.emissive.setRGB(er, eb * 0.6, eb);
+  }
+
   /** Per-chassis motion: an offset, rotation and squash for the billboard. */
   private pose(kind: MoveKind, t: number, v: View): { dx: number; dy: number; rot: number; sx: number; sy: number; arm: number } {
     const mv = v.moving;
@@ -691,7 +741,7 @@ export class Arena3D {
     m.robots.forEach((rb, i) => {
       const v = this.views[i];
       if (!v || !rb.alive || !v.shown) return;
-      const p = this.project(new THREE.Vector3(v.x, ROBOT_H + 2.5, v.z + 1.5));
+      const p = this.project(new THREE.Vector3(v.x, (v.model ? v.model.height + 4 : ROBOT_H + 2.5), v.z + (v.model ? 0 : 1.5)));
       const w = Math.min(64, 6 * rb.maxHp);
       g.font = '600 11px "Chakra Petch", sans-serif';
       g.fillStyle = rb.color;

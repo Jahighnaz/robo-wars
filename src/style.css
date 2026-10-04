@@ -234,7 +234,7 @@ textarea {
 .iconbtn { width: 46px; height: 46px; display: grid; place-items: center; border: 1px solid var(--line2); background: rgba(5,6,11,0.7); color: var(--cyan); }
 
 #hud .bottom { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; align-items: flex-end; padding: 0 calc(var(--sar) + 12px) calc(var(--sab) + 10px) calc(var(--sal) + 12px); }
-.me { width: 200px; flex: none; padding: 8px 10px; background: rgba(5,6,11,0.72); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+#hud .me { width: 200px; flex: none; padding: 8px 10px; background: rgba(5,6,11,0.72); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
 .mestatus { font-family: var(--display); font-size: 12px; letter-spacing: 1.5px; color: var(--cyan); }
 .me .lbl { font-family: var(--display); font-size: 9px; letter-spacing: 2px; color: var(--muted); margin-right: 8px; }
 .hull, .energy { display: flex; align-items: center; }
@@ -290,7 +290,7 @@ textarea {
 .standings small { color: var(--muted); font-weight: 400; }
 
 @media (max-width: 1000px) {
-  .me, .side { width: 150px; }
+  #hud .me, .side { width: 150px; }
   .pcard { width: 62px; height: 84px; }
   .pname { display: none; }
 }

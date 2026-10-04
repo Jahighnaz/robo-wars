@@ -105,7 +105,7 @@ export class App {
     const picker = el('div', { class: 'robots' }, CHASSIS_IDS.map(id => {
       const ch = R.chassis[id];
       return el('button', { class: 'robot-card' + (id === s.pilot.chassis ? ' on' : ''), style: `--acc:${ch.color}`, onclick: () => { s.pilot.chassis = id; this.store(); uiSnd(640); this.crew.send({ k: 'profile', p: this.publicProfile() }); this.showHub(); } },
-        el('div', { class: 'robot-art m-' + ch.move }, el('img', { src: `robots/${id === 'picks' ? 'picks' : id}.png`, alt: ch.name, draggable: 'false' })),
+        el('div', { class: 'robot-art m-' + ch.move }, el('img', { src: `robots/${id}-3d.png`, alt: ch.name, draggable: 'false' })),
         el('div', { class: 'rname' }, ch.name),
         el('div', { class: 'rmove' }, { walk: 'Walker', treads: 'Tank treads', wheels: 'Big wheels', slide: 'Saw skirt', crawl: 'Crawler' }[ch.move]),
         el('div', { class: 'rperk' }, ch.perk),
@@ -165,7 +165,7 @@ export class App {
       body = el('div', null,
         el('div', { class: 'row' }, el('span', { class: 'badge' }, 'CREW ' + c.code), el('span', { class: 'sub', style: 'margin:0' }, members.length + ' online'), el('div', { class: 'spacer' }),
           el('button', { class: 'btn sm ghost', onclick: () => { this.closeLobby(); c.leave(); } }, 'Leave')),
-        el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
+        el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}-3d.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
         c.isHost
           ? (L ? el('div', null,
             el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · ' + (s.settings.classic ? 'classic' : 'live') + ' mode · equal specs for every robot (set these under Battle bots).'),
@@ -523,7 +523,7 @@ export class App {
       H.actives.replaceChildren(...me.active.map((up, i) => el('button', { class: 'abtn', 'data-up': up, onpointerdown: (e: Event) => { e.preventDefault(); this.useUpgrade(up); } },
         el('span', { class: 'aname' }, R.upgrades[up].name), el('span', { class: 'akey' }, ['Q', 'E', 'R'][i]), el('span', { class: 'acd' }))));
       H.board.replaceChildren(...m.robots.map((r, i) => el('div', { class: 'sc' + (r.out ? ' out' : '') + (i === this.localId ? ' me' : ''), style: `--acc:${r.color}` },
-        el('img', { src: `robots/${r.chassis}.png`, alt: '' }),
+        el('img', { src: `robots/${r.chassis}-3d.png`, alt: '' }),
         el('div', null, el('div', { class: 'scn' }, r.name), el('div', { class: 'scs' }, '♥'.repeat(Math.max(0, r.lives)) + ' · ' + r.kills + ' ✖')))));
       H.shopBtn.textContent = m.classic && m.phase !== 'shop' ? `Shop next round ⚡${me.energy}` : `Upgrades ⚡${me.energy}`;
       H.shopBtn.classList.toggle('afford', m.canBuy() && Object.keys(R.upgrades).some(u => !m.has(me, u) && R.upgrades[u].cost <= me.energy));
@@ -642,7 +642,7 @@ export class App {
           el('tr', null, el('th', null, '#'), el('th', null, 'Robot'), el('th', null, 'Kills'), el('th', null, 'Deaths'), el('th', null, 'Damage'), el('th', null, 'Lives')),
           order.map((r, i) => el('tr', { class: r === me ? 'me' : '', style: `--acc:${r.color}` },
             el('td', null, String(i + 1)),
-            el('td', null, el('span', { class: 'who' }, el('img', { src: `robots/${r.chassis}.png`, alt: '' }), r.name, r.bot ? el('small', null, ' bot') : null)),
+            el('td', null, el('span', { class: 'who' }, el('img', { src: `robots/${r.chassis}-3d.png`, alt: '' }), r.name, r.bot ? el('small', null, ' bot') : null)),
             el('td', null, String(r.kills)), el('td', null, String(r.deaths)), el('td', null, String(r.dmg)), el('td', null, String(Math.max(0, r.lives))))))),
       el('div', { class: 'row', style: 'justify-content:center;margin-top:20px' },
         this.role === 'solo' ? el('button', { class: 'btn primary big', onclick: () => this.startSolo() }, 'Rematch ▸') : null,
