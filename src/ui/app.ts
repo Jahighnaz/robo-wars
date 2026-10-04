@@ -20,6 +20,7 @@ const BRAINS: Record<Difficulty, BotBrain> = {
   normal: { think: 0.7, skill: 0.7 },
   hard: { think: 0.42, skill: 0.92 },
 };
+const TICKS = [3, 5, 10, 15, 20];
 const BOT_NAMES = ['Sprocket', 'Torque', 'Rusty', 'Gizmo', 'Widget', 'Bolt', 'Ratchet', 'Clamp', 'Dynamo', 'Flux', 'Servo', 'Piston'];
 const CARD_ICON: Record<CardId, string> = { move1: '▲', move2: '▲▲', move3: '▲▲▲', back: '▼', left: '↺', right: '↻', uturn: '⟲' };
 const KEYS: Record<string, CardId> = { w: 'move1', arrowup: 'move1', '1': 'move1', '2': 'move2', '3': 'move3', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', x: 'uturn', u: 'uturn' };
@@ -49,7 +50,7 @@ export class App {
   /** member side: the host's lobby as last announced */
   private remoteLobby: Extract<CrewMsg, { k: 'rw_lobby' }> | null = null;
   private toastT = 0;
-  private hudEls: { cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
+  private hudEls: { cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; regnum: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
   private hudSig = '';
 
   constructor(private save: Save) {
@@ -130,6 +131,7 @@ export class App {
             el('b', { class: 'count' }, String(s.settings.bots)),
             el('button', { class: 'btn sm ghost', onclick: () => { s.settings.bots = Math.min(5, s.settings.bots + 1); this.store(); this.showHub(); } }, '+')),
           el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Skill'), diff('easy', 'Easy'), diff('normal', 'Normal'), diff('hard', 'Hard')),
+          el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Turn'), TICKS.map(t => el('button', { class: 'seg' + (s.settings.tick === t ? ' on' : ''), onclick: () => { s.settings.tick = t; this.store(); uiSnd(); this.showHub(); } }, t + 's'))),
           el('button', { class: 'btn primary big', style: 'margin-top:16px', onclick: () => this.startSolo() }, 'Fight ▸')),
         this.crewPanel()),
       el('div', { class: 'nav' },
@@ -161,14 +163,14 @@ export class App {
         el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
         c.isHost
           ? (L ? el('div', null,
-            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots (set the count under Battle bots).'),
+            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns (set both under Battle bots).'),
             el('div', { class: 'row' },
               el('button', { class: 'btn primary', onclick: () => this.startHost() }, 'Start the battle ▸'),
               el('button', { class: 'btn ghost sm', onclick: () => this.closeLobby() }, 'Close arena')))
             : el('button', { class: 'btn primary', style: 'margin-top:10px', onclick: () => this.openLobby() }, 'Open the arena'))
           : RL?.open
             ? el('div', null,
-              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + '.'),
+              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns.'),
               seated ? el('button', { class: 'btn ghost', onclick: () => c.send({ k: 'rw_leave', pid: s.pilot.id }) }, 'Leave seat · waiting for the host')
                 : el('button', { class: 'btn primary', onclick: () => c.send({ k: 'rw_join', seat: { pid: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis } }) }, 'Take a seat ▸'))
             : el('p', { class: 'sub' }, 'Waiting for the host to open the arena.'));
@@ -197,7 +199,7 @@ export class App {
   }
   private broadcastLobby() {
     const s = this.save;
-    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots });
+    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots, tick: this.save.settings.tick });
   }
 
   private onCrew(m: CrewMsg) {
@@ -222,7 +224,7 @@ export class App {
         const idx = m.players.findIndex(p => p.pid === s.pilot.id);
         if (idx < 0) break;
         this.remoteLobby = null;
-        this.match = new Match(m.seed, m.players);
+        this.match = new Match(m.seed, m.players, { tick: m.tick });
         this.bots = null;
         this.role = 'client';
         this.localId = idx;
@@ -261,7 +263,7 @@ export class App {
     unlockAudio();
     const players = [this.me(), ...this.botSpecs(this.save.settings.bots, new Set([this.save.pilot.name]), [this.save.pilot.chassis])];
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
-    this.match = new Match(timeSeed(), players);
+    this.match = new Match(timeSeed(), players, { tick: this.save.settings.tick });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'solo';
     this.localId = 0;
@@ -277,12 +279,12 @@ export class App {
     const players = [...humans, ...this.botSpecs(botN, new Set(humans.map(h => h.name)), humans.map(h => h.chassis))];
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
     const seed = timeSeed();
-    this.match = new Match(seed, players);
+    this.match = new Match(seed, players, { tick: this.save.settings.tick });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'host';
     this.localId = 0;
     this.lobby = null;
-    this.crew.send({ k: 'rw_start', seed, players });
+    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick });
     this.beginMatch();
   }
 
@@ -302,7 +304,7 @@ export class App {
     this.buildHud();
     music.setMood('run');
     const me = m.robots[this.localId];
-    this.toast(`${R.chassis[me.chassis].name} online · lasers fire every ${R.match.tick}s`, 2600);
+    this.toast(`${R.chassis[me.chassis].name} online · lasers fire every ${m.tick}s`, 2600);
   }
 
   // ================================================================ actions
@@ -431,7 +433,7 @@ export class App {
   private updateMusic() {
     const m = this.match!;
     const left = m.robots.filter(r => !r.out).length;
-    const mood: Mood = m.over ? 'menu' : left <= 2 || m.t > R.match.timeLimit - 30 ? 'boss' : 'run';
+    const mood: Mood = m.over ? 'menu' : left <= 2 || m.t > m.timeLimit - 30 ? 'boss' : 'run';
     music.setMood(mood);
     const me = m.robots[this.localId];
     let near = 0;
@@ -453,6 +455,7 @@ export class App {
     const clock = el('div', { class: 'clock' }, '0:00');
     const reg = el('div', { class: 'regs' }, [1, 2, 3, 4, 5].map(n => el('i', null, String(n))));
     const regbar = el('div', { class: 'regbar' }, el('b'));
+    const regnum = el('span', { class: 'regnum' });
     const hull = el('div', { class: 'hull' });
     const energy = el('div', { class: 'energy' });
     const passives = el('div', { class: 'passives' });
@@ -464,7 +467,7 @@ export class App {
       el('span', { html: '<svg width="18" height="18" viewBox="0 0 18 18"><rect x="3" y="2" width="4" height="14" fill="currentColor"/><rect x="11" y="2" width="4" height="14" fill="currentColor"/></svg>' }));
     this.hud.replaceChildren(
       el('div', { class: 'top' },
-        el('div', { class: 'clockbox' }, clock, el('div', { class: 'reglabel' }, 'REGISTER'), reg, regbar),
+        el('div', { class: 'clockbox' }, clock, el('div', { class: 'reglabel' }, 'LASERS IN ', regnum), reg, regbar),
         board,
         menuBtn),
       el('div', { class: 'bottom' },
@@ -473,7 +476,7 @@ export class App {
         el('div', { class: 'side' }, actives, shopBtn)),
       shop);
     this.hud.className = '';
-    this.hudEls = { cards, actives, passives, board, clock, reg, regbar, hull, energy, shopBtn, shop, status };
+    this.hudEls = { cards, actives, passives, board, clock, reg, regbar, regnum, hull, energy, shopBtn, shop, status };
     this.hudSig = '';
     void m;
   }
@@ -482,12 +485,13 @@ export class App {
     const m = this.match, H = this.hudEls;
     if (!m || !H) return;
     const me = m.robots[this.localId];
-    H.clock.textContent = fmtTime(Math.max(0, R.match.timeLimit - m.t));
+    H.clock.textContent = fmtTime(Math.max(0, m.timeLimit - m.t));
     [...H.reg.children].forEach((x, i) => x.classList.toggle('on', i + 1 === m.register));
-    (H.regbar.firstChild as HTMLElement).style.width = (100 * m.tickT / R.match.tick).toFixed(1) + '%';
-    H.regbar.classList.toggle('soon', R.match.tick - m.tickT < 0.6);
+    (H.regbar.firstChild as HTMLElement).style.width = (100 * m.tickT / m.tick).toFixed(1) + '%';
+    H.regbar.classList.toggle('soon', m.tick - m.tickT < Math.min(1.5, m.tick * 0.2));
+    H.regnum.textContent = Math.max(0, m.tick - m.tickT).toFixed(m.tick - m.tickT < 3 ? 1 : 0) + 's';
     for (const [k, b] of H.cards) {
-      const cd = me.cds[k], max = R.cards[k].cd * R.chassis[me.chassis].cdMul;
+      const cd = me.cds[k], max = m.cardCd(me, k);
       const ready = me.alive && !me.out && cd <= 0 && me.jamT <= 0;
       b.classList.toggle('ready', ready);
       b.style.setProperty('--cd', String(me.jamT > 0 ? 1 : Math.min(1, cd / max)));
@@ -512,7 +516,7 @@ export class App {
     }
     for (const b of H.actives.children) {
       const up = (b as HTMLElement).dataset.up!;
-      const cd = me.acd[up] ?? 0, max = R.upgrades[up].cd || 1;
+      const cd = me.acd[up] ?? 0, max = m.upgradeCd(up) || 1;
       (b as HTMLElement).style.setProperty('--cd', String(Math.min(1, cd / max)));
       b.classList.toggle('ready', cd <= 0 && me.alive);
       b.classList.toggle('aiming', this.targeting === up);
@@ -535,7 +539,7 @@ export class App {
       const can = !owned && !full && me.energy >= u.cost && !me.out;
       return el('button', { class: 'upcard' + (owned ? ' owned' : '') + (can ? ' can' : ''), disabled: !can, onclick: () => { this.act({ a: 'buy', x: id }); } },
         el('div', { class: 'uhead' }, el('b', null, u.name), el('span', { class: 'ucost' }, owned ? 'OWNED' : '⚡' + u.cost)),
-        el('div', { class: 'ukind' }, u.kind === 'passive' ? 'Permanent' : `Active · ${u.once ? 'one use' : (u.cd ?? 0) + 's cooldown'}`),
+        el('div', { class: 'ukind' }, u.kind === 'passive' ? 'Permanent' : `Active · ${u.once ? 'one use' : Math.round(m.upgradeCd(id)) + 's cooldown'}`),
         el('div', { class: 'udesc' }, u.desc));
     };
     const ids = Object.keys(R.upgrades);
@@ -624,10 +628,10 @@ export class App {
       el('h1', null, 'How to play'),
       el('div', { class: 'steps', style: 'margin-top:18px' },
         step('1', 'Program cards, live', 'Move 1/2/3, Back up, Turn left/right and U-turn. Play any card that is cool; bigger moves cool down longer. Keys: W/↑, 2, 3, S/↓, A/←, D/→, X.', 'var(--cyan)'),
-        step('2', 'The factory runs in registers', `Every ${R.match.tick} s: blue belts move 2, green belts 1, push panels shove (on the registers printed on them), gears turn you, board lasers fire, then every robot fires its laser forward. Energy cubes and repair wrenches pay out.`, 'var(--acid)'),
+        step('2', 'The factory runs in registers', `Every register (${this.save.settings.tick} s, see Settings): blue belts move 2, green belts 1, push panels shove (on the registers printed on them), gears turn you, board lasers fire, then every robot fires its laser forward. Energy cubes and repair wrenches pay out.`, 'var(--acid)'),
         step('3', 'Watch your step', 'Pits and the edge of the floor cost a life. Walls and crates stop movement and lasers. You can push other robots, into pits too.', 'var(--red)'),
         step('4', 'Upgrades', 'Energy buys cards from the Robo Rally deck: Rear Laser, Double Barrel, Rail Gun, Deflector Shield, Mirror Plating, Hover, and actives (Q/E/R): Rocket, EMP, Teleport, Overload, Kamikaze, Reverse Gear. The heavier the weapon, the longer its cooldown.', 'var(--mag)'),
-        step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the ${fmtTime(R.match.timeLimit)} clock runs out. A kill pays ${R.match.killEnergy} energy.`, 'var(--green)')),
+        step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the clock runs out (at least ${fmtTime(R.match.timeLimit)}; longer with long registers). A kill pays ${R.match.killEnergy} energy.`, 'var(--green)')),
       el('div', { class: 'row', style: 'margin-top:20px' }, el('button', { class: 'btn', onclick: () => this.showHub() }, '◂ Back'))));
   }
 
@@ -643,6 +647,8 @@ export class App {
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
         toggle('Sound', 'Lasers, belts, gears and booms.', s.sound, () => { s.sound = !s.sound; setMuted(!s.sound); }),
         toggle('Music', '"Shop Floor Fever": 8-bit arcade techno.', s.music, () => { s.music = !s.music; music.setEnabled(s.music); }),
+        el('div', { class: 'toggle' }, el('div', { class: 'tl' }, 'Register length', el('div', null, 'Seconds between registers (belts, gears, lasers). Card and upgrade cooldowns scale with it. Shorter is frantic, longer is tactical.')),
+          el('div', { class: 'row', style: 'flex:none' }, TICKS.map(t => el('button', { class: 'seg' + (s.tick === t ? ' on' : ''), onclick: () => { s.tick = t; this.store(); uiSnd(); this.showSettings(); } }, t + 's')))),
         toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.arena.bloomOn, () => { this.arena.bloomOn = !this.arena.bloomOn; })),
       el('div', { class: 'row', style: 'margin-top:20px' }, el('button', { class: 'btn', onclick: () => this.showHub() }, '◂ Back'))));
   }

@@ -199,7 +199,7 @@ export class Arena3D {
     const flat = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     const cbox = new THREE.BoxGeometry(1, 1, 1);
     this.rings = new Pool(flat, decalMaterial(ringTexture(), 1.5), 16);
-    this.arrows = new Pool(flat, decalMaterial(arrowTexture(), 1.6), 16);
+    this.arrows = new Pool(flat, decalMaterial(arrowTexture(), 1.6), 32);
     this.saws = new Pool(flat, decalMaterial(sawTexture(), 1.2), 16);
     this.beams = new Pool(cbox, glowMaterial(3, true), 200);
     this.glows = new Pool(flat, decalMaterial(radialTexture(), 1.4), 200);
@@ -504,6 +504,7 @@ export class Arena3D {
 
     // robots
     this.rings.begin(); this.arrows.begin(); this.saws.begin(); this.glows.begin();
+    const sights: { a: THREE.Vector3; b: THREE.Vector3; c: THREE.Color; k: number }[] = [];
     const speed = CELL / R.match.stepTime;
     m.robots.forEach((rb, i) => {
       const v = this.views[i];
@@ -564,8 +565,18 @@ export class Arena3D {
       const ring = CELL * (i === this.localId ? 1.05 : 0.95);
       this.glows.push(v.x, 0.12, v.z, 0, CELL * 1.4, 1, CELL * 1.4, c, i === this.localId ? 0.55 : 0.35);
       this.rings.push(v.x, 0.15, v.z, t * (i === this.localId ? 1.2 : 0.5), ring, 1, ring, c, 1);
-      const ax = v.x + DIRS[facing].dc * CELL * 0.62, az = v.z + DIRS[facing].dr * CELL * 0.62;
-      this.arrows.push(ax, 0.2, az, -(facing * Math.PI) / 2, CELL * 0.42, 1, CELL * 0.42, c, 1.3);
+      // a big facing arrow just past the tile edge, pulsing for your own robot
+      const mine = i === this.localId, pulse = mine ? 1 + Math.sin(t * 5) * 0.12 : 1;
+      const reach = facing === 0 ? 1.15 : 0.78; // facing away: clear the sprite
+      const ax = v.x + DIRS[facing].dc * CELL * reach, az = v.z + DIRS[facing].dr * CELL * reach;
+      this.arrows.push(ax, 0.22, az, -(facing * Math.PI) / 2, CELL * 0.78 * pulse, 1, CELL * 0.78 * pulse, c, mine ? 2.6 : 2);
+      this.arrows.push(v.x + DIRS[facing].dc * CELL * 0.3, 0.21, v.z + DIRS[facing].dr * CELL * 0.3, -(facing * Math.PI) / 2, CELL * 0.45, 1, CELL * 0.45, c, 0.9);
+      // laser sight: where this robot's laser will go at the next register
+      if (rb.alive) {
+        const rail = rb.passive.includes('rail');
+        const end = rail ? m.rayAll(rb.r, rb.c, facing, rb).end : m.ray(rb.r, rb.c, facing, rb).end;
+        sights.push({ a: new THREE.Vector3(v.x + DIRS[facing].dc * CELL * 0.5, 0.7, v.z + DIRS[facing].dr * CELL * 0.5), b: this.wp(end, 0.7), c, k: mine ? 0.55 : 0.22 });
+      }
       if (R.chassis[rb.chassis].move === 'slide') this.saws.push(v.x, 0.25, v.z, t * (6 + v.moving * 18), CELL * 0.95, 1, CELL * 0.95, col('#bfe9ff'), 0.6);
       if (rb.passive.includes('shield') && rb.shieldUp) this.rings.push(v.x, 0.3, v.z, -t, CELL * 1.25, 1, CELL * 1.25, col('#5ec8ff'), 0.6);
     });
@@ -573,6 +584,12 @@ export class Arena3D {
 
     // effects
     this.beams.begin(); this.sparks.begin(); this.fxRings.begin();
+    for (const sg of sights) {
+      const len = sg.a.distanceTo(sg.b);
+      if (len < 0.5) continue;
+      const mid = sg.a.clone().lerp(sg.b, 0.5);
+      this.beams.push(mid.x, mid.y, mid.z, Math.atan2(sg.b.x - sg.a.x, sg.b.z - sg.a.z), 0.28, 0.08, len, sg.c, sg.k);
+    }
     for (let i = this.fx.length - 1; i >= 0; i--) {
       const f = this.fx[i];
       f.t += dt;

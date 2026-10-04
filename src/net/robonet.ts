@@ -26,10 +26,10 @@ export interface Snapshot {
 }
 
 export type RoboMsg =
-  | { k: 'rw_lobby'; open: boolean; host: string; hostPid: string; seats: LobbySeat[]; bots: number }
+  | { k: 'rw_lobby'; open: boolean; host: string; hostPid: string; seats: LobbySeat[]; bots: number; tick: number }
   | { k: 'rw_join'; seat: LobbySeat }
   | { k: 'rw_leave'; pid: string }
-  | { k: 'rw_start'; seed: number; players: PlayerSpec[] }
+  | { k: 'rw_start'; seed: number; players: PlayerSpec[]; tick: number }
   | { k: 'rw_in'; pid: string; act: Action }
   | { k: 'rw_snap'; s: Snapshot }
   | { k: 'rw_end' };

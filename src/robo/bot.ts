@@ -174,7 +174,7 @@ export class Bots {
         const q = preview(m, rb, next, p);
         if (!q.dead) s = Math.max(s, this.score(rb, q.r, q.c, q.d, target, foes) - 1);
       }
-      s -= R.cards[card].cd * 0.4;
+      s -= R.cards[card].cd * 0.4; // base cooldowns: the pace scales them all alike
       s += (m.rng.next() - 0.5) * (1 - this.brain.skill) * 12;
       if (s > bestS) { bestS = s; best = card; }
     }

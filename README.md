@@ -19,14 +19,16 @@ Each robot is an animated billboard: Clank waddles, Bruiser rumbles, Roller boun
 ## How a battle works
 
 - **Program cards:** Move 1/2/3, Back up, Turn left/right, U-turn. Tap a card whenever it is cool (keys: W/↑, 2, 3, S/↓, A/←, D/→, X). Moving into a robot pushes it, into pits too.
-- **Registers:** every 2 s the factory acts in the reference order: blue belts ×2, green belts, push panels (on the registers printed on them), gears, board lasers, then every robot fires its laser forward (in antenna priority order). Pickaxes swing, energy cubes and repair wrenches pay out.
+- **Registers (turns):** every turn (10 s by default; 3/5/10/15/20 s under *Battle bots* or Settings) the factory acts in the reference order: blue belts ×2, green belts, push panels (on the registers printed on them), gears, board lasers, then every robot fires its laser forward (in antenna priority order). Pickaxes swing, energy cubes and repair wrenches pay out.
 - **Terrain:** walls and crates block movement and lasers (rail guns and Overload go through walls), pits and the floor edge cost a life, the priority antenna is solid.
 - **Upgrades:** spend energy any time. Permanent: Rear Laser, Double Barrel, Rail Gun, Deflector Shield (blocks the first hit each register), Mirror Plating (lasers from the front bounce back), Hover Unit. Active (Q/E/R): Rocket Launcher (9 s), Teleporter (14 s), EMP (18 s), Reverse Gear (20 s), Overload (22 s), Kamikaze (one use).
-- **Winning:** three lives each; last robot standing, or most kills when the 5-minute clock runs out. A kill pays 2 energy.
+- **Turn length:** card and upgrade cooldowns, EMP jams and Reverse Gear scale with the turn length, so a battle lasts about the same number of turns whatever you pick. The clock is at least 5 minutes or 45 turns.
+- **Reading the board:** a big arrow in the robot's colour shows where it faces, and a faint line shows where its laser will hit at the next turn (yours brighter).
+- **Winning:** three lives each; last robot standing, or most kills when the clock runs out. A kill pays 2 energy.
 
 ## Crew battles (same Wi-Fi)
 
-One device taps **Host a crew** and shares the 4-letter code; the others **Join**. The host taps **Open the arena**, crew-mates **Take a seat**, the host starts the battle. Up to six robots; the *Battle bots* count fills empty seats. The host's device runs the match and streams snapshots (15/s); the others send their card plays. A crew-mate who drops out is taken over by a bot.
+One device taps **Host a crew** and shares the 4-letter code; the others **Join**. The host taps **Open the arena**, crew-mates **Take a seat**, the host starts the battle. Up to six robots (tested with five players on five devices); the *Battle bots* count fills empty seats. The host's device runs the match and streams snapshots (15/s); the others send their card plays. A crew-mate who drops out is taken over by a bot.
 
 Web pages cannot scan the local Wi-Fi, so devices find each other through PeerJS's free public broker (internet needed); the data then flows peer-to-peer. Your own broker: `npx peerjs --port 9000`, then open the game with `?broker=<host>:9000`.
 

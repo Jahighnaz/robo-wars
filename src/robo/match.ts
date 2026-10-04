@@ -11,6 +11,9 @@ import { Rng } from '../core/rng';
 import { cellAt, DIRS, flipBelts, generateBoard, isSolid, OPP, wallBlocked, type Board, type Cell } from './board';
 import { CARD_IDS, R, TEAM_COLORS, type CardId } from './data';
 
+/** Register length in seconds; card and upgrade cooldowns, jams and respawns scale with it. */
+export interface MatchOptions { tick?: number }
+
 export interface PlayerSpec { pid: string; name: string; chassis: string; bot?: boolean; color?: string }
 
 export interface Robot {
@@ -71,8 +74,16 @@ export class Match {
   drained = new Map<number, number>();
   revT = 0;
   events: MatchEvent[] = [];
+  /** seconds per register, and how much slower than the tuned base pace (robo.json match.tick) */
+  readonly tick: number;
+  readonly pace: number;
+  readonly timeLimit: number;
 
-  constructor(readonly seed: number, players: PlayerSpec[]) {
+  constructor(readonly seed: number, players: PlayerSpec[], opts: MatchOptions = {}) {
+    this.tick = Math.max(1, opts.tick ?? R.match.tick);
+    this.pace = this.tick / R.match.tick;
+    // a long register needs a longer clock: at least 45 registers
+    this.timeLimit = Math.max(R.match.timeLimit, Math.round(45 * this.tick));
     this.rng = new Rng(seed ^ 0x9e3779b9);
     this.board = generateBoard(seed);
     players.slice(0, this.board.starts.length).forEach((p, i) => this.addRobot(p, i));
@@ -143,6 +154,9 @@ export class Match {
   }
 
   // ------------------------------------------------------------ player actions
+  cardCd(rb: Robot, card: CardId): number { return R.cards[card].cd * R.chassis[rb.chassis].cdMul * this.pace; }
+  upgradeCd(up: string): number { return (R.upgrades[up].cd ?? 0) * this.pace; }
+
   canPlay(rb: Robot, card: CardId): boolean {
     return !this.over && rb.alive && !rb.out && rb.busyT <= 0 && rb.jamT <= 0 && rb.cds[card] <= 0;
   }
@@ -162,7 +176,7 @@ export class Match {
       case 'right': rb.d = (rb.d + 1) % 4; this.emit({ k: 'turn', id }); break;
       case 'uturn': rb.d = OPP(rb.d); this.emit({ k: 'turn', id }); break;
     }
-    rb.cds[card] = R.cards[card].cd * R.chassis[rb.chassis].cdMul;
+    rb.cds[card] = this.cardCd(rb, card);
     rb.busyT = Math.max(0.12, steps * R.match.stepTime);
     this.prioritise();
     return true;
@@ -192,15 +206,15 @@ export class Match {
     if (!rb || !u || u.kind !== 'active' || !rb.active.includes(up) || !rb.alive || rb.out || this.over || (rb.acd[up] ?? 0) > 0 || rb.busyT > 0) return false;
     switch (up) {
       case 'rocket': this.rocket(rb, u.dmg ?? 2); break;
-      case 'emp': this.empBlast(rb, u.radius ?? 6, u.jam ?? 4); break;
+      case 'emp': this.empBlast(rb, u.radius ?? 6, (u.jam ?? 4) * this.pace); break;
       case 'tele': if (!target || !this.teleport(rb, target, u.range ?? 5)) return false; break;
       case 'over': this.overload(rb, u.dmg ?? 3); break;
       case 'kami': this.kamikaze(rb, u.dmg ?? 3); break;
-      case 'rev': this.reverse(u.dur ?? 8); break;
+      case 'rev': this.reverse((u.dur ?? 8) * this.pace); break;
       default: return false;
     }
     if (u.once) rb.active = rb.active.filter(x => x !== up);
-    else rb.acd[up] = u.cd ?? 0;
+    else rb.acd[up] = this.upgradeCd(up);
     rb.busyT = Math.max(rb.busyT, 0.25);
     this.prioritise();
     return true;
@@ -271,7 +285,7 @@ export class Match {
     rb.deaths++;
     rb.lives--;
     rb.out = rb.lives <= 0;
-    rb.respawnT = R.match.respawn;
+    rb.respawnT = R.match.respawn * Math.sqrt(this.pace);
     this.emit({ k: how === 'fall' ? 'fall' : 'wreck', id: rb.id });
     const killer = how !== 'self' && rb.lastHitBy >= 0 && this.t - rb.lastHitT <= R.match.creditWindow ? this.robots[rb.lastHitBy] : null;
     if (killer && killer !== rb) {
@@ -530,9 +544,9 @@ export class Match {
     }
     if (this.revT > 0) { this.revT -= dt; if (this.revT <= 0) { flipBelts(this.board); this.emit({ k: 'reverse', on: false }); } }
     this.tickT += dt;
-    if (this.tickT >= R.match.tick) { this.tickT -= R.match.tick; this.runRegister(); }
+    if (this.tickT >= this.tick) { this.tickT -= this.tick; this.runRegister(); }
     const left = this.robots.filter(r => !r.out);
-    if ((this.robots.length > 1 && left.length <= 1) || this.t >= R.match.timeLimit) {
+    if ((this.robots.length > 1 && left.length <= 1) || this.t >= this.timeLimit) {
       this.over = true;
       this.winner = this.standings()[0]?.id ?? -1;
       this.emit({ k: 'over', winner: this.winner });

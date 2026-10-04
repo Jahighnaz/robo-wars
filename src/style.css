@@ -297,3 +297,4 @@ textarea {
 @media (max-height: 640px) {
   .pcard { height: 70px; }
 }
+.regnum { color: var(--acid); }
