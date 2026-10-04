@@ -13,10 +13,12 @@ export function isPublicProfile(x: unknown): x is PublicProfile {
 }
 
 export interface LobbySeat { pid: string; name: string; chassis: string }
-export type Action = { a: 'card'; x: CardId } | { a: 'buy'; x: string } | { a: 'use'; x: string; r?: number; c?: number };
+export type Action = { a: 'ready' } | { a: 'card'; x: CardId } | { a: 'buy'; x: string } | { a: 'use'; x: string; r?: number; c?: number };
 
 export interface Snapshot {
   t: number; reg: number; tickT: number; over: boolean; winner: number; rev: boolean;
+  /** classic: registers run, and whether the shop phase is open */
+  rc: number; shop: boolean;
   drained: number[];
   /** per robot: r, c, d, hp, lives, energy, flags(alive|out<<1|shieldUp<<2), respawnT, guardT, jamT, kills, deaths */
   rb: number[][];
@@ -26,10 +28,10 @@ export interface Snapshot {
 }
 
 export type RoboMsg =
-  | { k: 'rw_lobby'; open: boolean; host: string; hostPid: string; seats: LobbySeat[]; bots: number; tick: number }
+  | { k: 'rw_lobby'; open: boolean; host: string; hostPid: string; seats: LobbySeat[]; bots: number; tick: number; classic: boolean }
   | { k: 'rw_join'; seat: LobbySeat }
   | { k: 'rw_leave'; pid: string }
-  | { k: 'rw_start'; seed: number; players: PlayerSpec[]; tick: number; equal: boolean }
+  | { k: 'rw_start'; seed: number; players: PlayerSpec[]; tick: number; equal: boolean; classic: boolean }
   | { k: 'rw_in'; pid: string; act: Action }
   | { k: 'rw_snap'; s: Snapshot }
   | { k: 'rw_end' };
@@ -43,9 +45,9 @@ const r2 = (v: number) => Math.round(v * 100) / 100;
 
 export function snapshot(m: Match, ev: MatchEvent[]): Snapshot {
   return {
-    t: r2(m.t), reg: m.register, tickT: r2(m.tickT), over: m.over, winner: m.winner, rev: m.revT > 0,
+    t: r2(m.t), reg: m.register, tickT: r2(m.tickT), over: m.over, winner: m.winner, rev: m.revT > 0, rc: m.regCount, shop: m.phase === 'shop',
     drained: [...m.drained.keys()],
-    rb: m.robots.map(r => [r.r, r.c, r.d, r.hp, r.lives, r.energy, Number(r.alive) | (Number(r.out) << 1) | (Number(r.shieldUp) << 2), r2(r.respawnT), r2(r.guardT), r2(r.jamT), r.kills, r.deaths]),
+    rb: m.robots.map(r => [r.r, r.c, r.d, r.hp, r.lives, r.energy, Number(r.alive) | (Number(r.out) << 1) | (Number(r.shieldUp) << 2), r2(r.respawnT), r2(r.guardT), r2(r.jamT), r.kills, r.deaths, r.played]),
     cds: m.robots.map(r => CARD_IDS.map(k => r2(r.cds[k]))),
     up: m.robots.map(r => ({ p: r.passive, a: r.active, acd: r.active.map(k => r2(r.acd[k] ?? 0)) })),
     ev,
@@ -54,7 +56,7 @@ export function snapshot(m: Match, ev: MatchEvent[]): Snapshot {
 
 /** Copy a snapshot into a client's mirror Match (built from the same seed and players). */
 export function applySnapshot(m: Match, s: Snapshot): MatchEvent[] {
-  m.t = s.t; m.register = s.reg; m.tickT = s.tickT; m.over = s.over; m.winner = s.winner;
+  m.t = s.t; m.register = s.reg; m.regCount = s.rc; m.phase = s.shop ? 'shop' : 'run'; m.tickT = s.tickT; m.over = s.over; m.winner = s.winner;
   const rev = m.revT > 0;
   if (s.rev !== rev) { flipBelts(m.board); m.revT = s.rev ? 1 : 0; }
   m.drained = new Map(s.drained.map(i => [i, 1]));
@@ -64,6 +66,7 @@ export function applySnapshot(m: Match, s: Snapshot): MatchEvent[] {
     [r.r, r.c, r.d, r.hp, r.lives, r.energy] = a;
     r.alive = !!(a[6] & 1); r.out = !!(a[6] & 2); r.shieldUp = !!(a[6] & 4);
     [r.respawnT, r.guardT, r.jamT, r.kills, r.deaths] = a.slice(7);
+    r.played = a[12] ?? -1;
     CARD_IDS.forEach((k, j) => { r.cds[k] = s.cds[i]?.[j] ?? 0; });
     const u = s.up[i];
     if (u) { r.passive = u.p; r.active = u.a; r.acd = {}; u.a.forEach((k, j) => { r.acd[k] = u.acd[j] ?? 0; }); }

@@ -46,6 +46,8 @@ const schema = z.object({
   slots: z.object({ passive: z.number().int(), active: z.number().int() }),
   /** equal-specs battles (crew PvP): every robot gets this hull and no chassis perks */
   standard: z.object({ hp: z.number().int().positive() }),
+  /** classic mode: one card per register; cooldowns counted in registers */
+  classic: z.object({ cards: z.record(z.string(), z.number().int().min(0)), energyRecharge: z.number().int().positive() }),
 });
 
 export const R = schema.parse(json);

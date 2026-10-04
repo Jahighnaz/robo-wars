@@ -2,7 +2,7 @@
 import { CHASSIS_IDS } from '../robo/data';
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
-export interface Settings { sound: boolean; music: boolean; bots: number; difficulty: Difficulty; /** seconds per register */ tick: number }
+export interface Settings { sound: boolean; music: boolean; bots: number; difficulty: Difficulty; /** seconds per register */ tick: number; /** classic: one card per register, shop between rounds */ classic: boolean }
 export interface Pilot { id: string; name: string; chassis: string }
 export interface Record_ { matches: number; wins: number; kills: number; deaths: number; bestStreak: number; byChassis: Record<string, number> }
 export interface Save { v: 1; pilot: Pilot; rec: Record_; settings: Settings; crewCode?: string }
@@ -12,7 +12,7 @@ const uid = () => {
   return 'p' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 };
 
-export const defaultSettings = (): Settings => ({ sound: true, music: true, bots: 3, difficulty: 'normal', tick: 10 });
+export const defaultSettings = (): Settings => ({ sound: true, music: true, bots: 3, difficulty: 'normal', tick: 10, classic: false });
 
 export function defaultSave(): Save {
   return {

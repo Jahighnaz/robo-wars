@@ -52,6 +52,7 @@ export class App {
   private toastT = 0;
   private hudEls: { cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; regnum: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
   private hudSig = '';
+  private lastPhase = '';
 
   constructor(private save: Save) {
     this.arena = new Arena3D($('cv') as HTMLCanvasElement, $('ov') as HTMLCanvasElement);
@@ -131,6 +132,10 @@ export class App {
             el('b', { class: 'count' }, String(s.settings.bots)),
             el('button', { class: 'btn sm ghost', onclick: () => { s.settings.bots = Math.min(5, s.settings.bots + 1); this.store(); this.showHub(); } }, '+')),
           el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Skill'), diff('easy', 'Easy'), diff('normal', 'Normal'), diff('hard', 'Hard')),
+          el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Mode'),
+            el('button', { class: 'seg' + (!s.settings.classic ? ' on' : ''), onclick: () => { s.settings.classic = false; this.store(); uiSnd(); this.showHub(); } }, 'Live'),
+            el('button', { class: 'seg' + (s.settings.classic ? ' on' : ''), onclick: () => { s.settings.classic = true; this.store(); uiSnd(); this.showHub(); } }, 'Classic')),
+          el('p', { class: 'sub', style: 'margin:8px 0 0;font-size:13px' }, s.settings.classic ? 'Classic: one card per register. Move 2 recharges in 3 registers, Move 3 and Back up in 8. Upgrades are bought in a shop between rounds; the host starts each round.' : 'Live: play any card the moment it has cooled down; buy upgrades any time.'),
           el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Turn'), TICKS.map(t => el('button', { class: 'seg' + (s.settings.tick === t ? ' on' : ''), onclick: () => { s.settings.tick = t; this.store(); uiSnd(); this.showHub(); } }, t + 's'))),
           el('button', { class: 'btn primary big', style: 'margin-top:16px', onclick: () => this.startSolo() }, 'Fight ▸')),
         this.crewPanel()),
@@ -163,14 +168,14 @@ export class App {
         el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
         c.isHost
           ? (L ? el('div', null,
-            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · equal specs for every robot (set bots and turns under Battle bots).'),
+            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · ' + (s.settings.classic ? 'classic' : 'live') + ' mode · equal specs for every robot (set these under Battle bots).'),
             el('div', { class: 'row' },
               el('button', { class: 'btn primary', onclick: () => this.startHost() }, 'Start the battle ▸'),
               el('button', { class: 'btn ghost sm', onclick: () => this.closeLobby() }, 'Close arena')))
             : el('button', { class: 'btn primary', style: 'margin-top:10px', onclick: () => this.openLobby() }, 'Open the arena'))
           : RL?.open
             ? el('div', null,
-              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns · equal specs: your robot is only a look.'),
+              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns · ' + (RL.classic ? 'classic' : 'live') + ' mode · equal specs: your robot is only a look.'),
               seated ? el('button', { class: 'btn ghost', onclick: () => c.send({ k: 'rw_leave', pid: s.pilot.id }) }, 'Leave seat · waiting for the host')
                 : el('button', { class: 'btn primary', onclick: () => c.send({ k: 'rw_join', seat: { pid: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis } }) }, 'Take a seat ▸'))
             : el('p', { class: 'sub' }, 'Waiting for the host to open the arena.'));
@@ -199,7 +204,7 @@ export class App {
   }
   private broadcastLobby() {
     const s = this.save;
-    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots, tick: this.save.settings.tick });
+    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots, tick: this.save.settings.tick, classic: this.save.settings.classic });
   }
 
   private onCrew(m: CrewMsg) {
@@ -224,7 +229,7 @@ export class App {
         const idx = m.players.findIndex(p => p.pid === s.pilot.id);
         if (idx < 0) break;
         this.remoteLobby = null;
-        this.match = new Match(m.seed, m.players, { tick: m.tick, equal: m.equal });
+        this.match = new Match(m.seed, m.players, { tick: m.tick, equal: m.equal, classic: m.classic });
         this.bots = null;
         this.role = 'client';
         this.localId = idx;
@@ -263,7 +268,7 @@ export class App {
     unlockAudio();
     const players = [this.me(), ...this.botSpecs(this.save.settings.bots, new Set([this.save.pilot.name]), [this.save.pilot.chassis])];
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
-    this.match = new Match(timeSeed(), players, { tick: this.save.settings.tick });
+    this.match = new Match(timeSeed(), players, { tick: this.save.settings.tick, classic: this.save.settings.classic });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'solo';
     this.localId = 0;
@@ -280,12 +285,12 @@ export class App {
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
     const seed = timeSeed();
     // crew battles are fair fights: every robot has the same specs, the chassis is only a look
-    this.match = new Match(seed, players, { tick: this.save.settings.tick, equal: true });
+    this.match = new Match(seed, players, { tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'host';
     this.localId = 0;
     this.lobby = null;
-    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick, equal: true });
+    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic });
     this.beginMatch();
   }
 
@@ -317,7 +322,8 @@ export class App {
 
   private apply(id: number, a: Action) {
     const m = this.match!;
-    if (a.a === 'card' && CARD_IDS.includes(a.x)) m.play(id, a.x);
+    if (a.a === 'ready') m.ready(id);
+    else if (a.a === 'card' && CARD_IDS.includes(a.x)) m.play(id, a.x);
     else if (a.a === 'buy') m.buy(id, a.x);
     else if (a.a === 'use') m.use(id, a.x, a.r !== undefined && a.c !== undefined ? { r: a.r, c: a.c } : undefined);
   }
@@ -351,6 +357,7 @@ export class App {
     const k = e.key.toLowerCase();
     if (k === 'escape') { if (this.shopOpen) this.toggleShop(); else if (this.role === 'solo') this.pause(!this.paused); return; }
     if (k === 'b') { this.toggleShop(); return; }
+    if (k === 'enter' && this.match.phase === 'shop' && this.localId === 0) { this.act({ a: 'ready' }); return; }
     const card = KEYS[k];
     if (card) { e.preventDefault(); this.act({ a: 'card', x: card }); return; }
     const me = this.match.robots[this.localId];
@@ -425,6 +432,8 @@ export class App {
           if (k && v) this.toast(e.killer === this.localId ? `You scrapped ${v.name}! +${R.match.killEnergy} ⚡` : e.victim === this.localId ? `${k.name} scrapped you` : `${k.name} scrapped ${v.name}`, 1800);
           break;
         }
+        case 'shop': this.toast(`Round ${e.n}: shop open`, 1600); sfx.buy(); break;
+        case 'round': this.toast(`Round ${e.n}: go!`, 1200); sfx.register(); break;
         case 'reverse': this.toast(e.on ? 'Reverse gear: belts run backwards!' : 'Belts back to normal', 1500); break;
         default: break;
       }
@@ -479,6 +488,7 @@ export class App {
     this.hud.className = '';
     this.hudEls = { cards, actives, passives, board, clock, reg, regbar, regnum, hull, energy, shopBtn, shop, status };
     this.hudSig = '';
+    this.lastPhase = '';
     void m;
   }
 
@@ -490,16 +500,20 @@ export class App {
     [...H.reg.children].forEach((x, i) => x.classList.toggle('on', i + 1 === m.register));
     (H.regbar.firstChild as HTMLElement).style.width = (100 * m.tickT / m.tick).toFixed(1) + '%';
     H.regbar.classList.toggle('soon', m.tick - m.tickT < Math.min(1.5, m.tick * 0.2));
-    H.regnum.textContent = Math.max(0, m.tick - m.tickT).toFixed(m.tick - m.tickT < 3 ? 1 : 0) + 's';
+    H.regnum.textContent = m.phase === 'shop' ? 'SHOP' : Math.max(0, m.tick - m.tickT).toFixed(m.tick - m.tickT < 3 ? 1 : 0) + 's';
+    const spent = m.spent(me);
     for (const [k, b] of H.cards) {
-      const cd = me.cds[k], max = m.cardCd(me, k);
-      const ready = me.alive && !me.out && cd <= 0 && me.jamT <= 0;
-      b.classList.toggle('ready', ready);
-      b.style.setProperty('--cd', String(me.jamT > 0 ? 1 : Math.min(1, cd / max)));
-      (b.lastChild as HTMLElement).textContent = me.jamT > 0 ? 'JAM' : cd > 0 ? cd.toFixed(1) : '';
+      const cd = me.cds[k], max = m.cardCd(me, k) || 1;
+      b.classList.toggle('ready', m.canPlay(me, k));
+      b.classList.toggle('spent', spent && cd <= 0);
+      b.style.setProperty('--cd', String(me.jamT > 0 || (spent && cd <= 0) ? 1 : Math.min(1, cd / max)));
+      // classic counts registers (whole numbers), live counts seconds
+      (b.lastChild as HTMLElement).textContent = me.jamT > 0 ? 'JAM' : cd > 0 ? (m.classic ? cd + ' reg' : cd.toFixed(1)) : spent ? 'next reg' : '';
     }
+    // classic: the shop opens by itself when a round starts and closes when it runs
+    if (m.classic && m.phase !== this.lastPhase) { this.lastPhase = m.phase; if (!me.out) this.setShop(m.phase === 'shop'); }
     // things that change rarely: rebuild on a signature change
-    const sig = [me.hp, me.lives, me.energy, me.alive, me.out, me.passive.join(), me.active.join(), m.robots.map(r => `${r.kills}/${r.lives}/${r.hp}/${r.alive}`).join(), this.shopOpen].join('|');
+    const sig = [me.hp, me.lives, me.energy, me.alive, me.out, me.passive.join(), me.active.join(), m.phase, m.round, m.robots.map(r => `${r.kills}/${r.lives}/${r.hp}/${r.alive}`).join(), this.shopOpen].join('|');
     if (sig !== this.hudSig) {
       this.hudSig = sig;
       H.hull.replaceChildren(el('span', { class: 'lbl' }, 'HULL'), el('span', { class: 'pips' }, Array.from({ length: me.maxHp }, (_, i) => el('i', { class: i < me.hp ? (me.hp <= 3 ? 'low' : 'on') : '' }))));
@@ -511,8 +525,8 @@ export class App {
       H.board.replaceChildren(...m.robots.map((r, i) => el('div', { class: 'sc' + (r.out ? ' out' : '') + (i === this.localId ? ' me' : ''), style: `--acc:${r.color}` },
         el('img', { src: `robots/${r.chassis}.png`, alt: '' }),
         el('div', null, el('div', { class: 'scn' }, r.name), el('div', { class: 'scs' }, '♥'.repeat(Math.max(0, r.lives)) + ' · ' + r.kills + ' ✖')))));
-      H.shopBtn.textContent = `Upgrades ⚡${me.energy}`;
-      H.shopBtn.classList.toggle('afford', Object.keys(R.upgrades).some(u => !m.has(me, u) && R.upgrades[u].cost <= me.energy));
+      H.shopBtn.textContent = m.classic && m.phase !== 'shop' ? `Shop next round ⚡${me.energy}` : `Upgrades ⚡${me.energy}`;
+      H.shopBtn.classList.toggle('afford', m.canBuy() && Object.keys(R.upgrades).some(u => !m.has(me, u) && R.upgrades[u].cost <= me.energy));
       if (this.shopOpen) this.renderShop();
     }
     for (const b of H.actives.children) {
@@ -521,9 +535,11 @@ export class App {
       (b as HTMLElement).style.setProperty('--cd', String(Math.min(1, cd / max)));
       b.classList.toggle('ready', cd <= 0 && me.alive);
       b.classList.toggle('aiming', this.targeting === up);
-      (b.lastChild as HTMLElement).textContent = cd > 0 ? cd.toFixed(0) + 's' : '';
+      (b.lastChild as HTMLElement).textContent = cd > 0 ? (m.classic ? cd + ' reg' : cd.toFixed(0) + 's') : '';
     }
   }
+
+  private setShop(open: boolean) { if (open !== this.shopOpen) this.toggleShop(); }
 
   private toggleShop() {
     this.shopOpen = !this.shopOpen;
@@ -537,17 +553,30 @@ export class App {
     const item = (id: string) => {
       const u = R.upgrades[id], owned = m.has(me, id);
       const full = (u.kind === 'passive' ? me.passive.length >= R.slots.passive : me.active.length >= R.slots.active);
-      const can = !owned && !full && me.energy >= u.cost && !me.out;
+      const can = !owned && !full && me.energy >= u.cost && !me.out && m.canBuy();
       return el('button', { class: 'upcard' + (owned ? ' owned' : '') + (can ? ' can' : ''), disabled: !can, onclick: () => { this.act({ a: 'buy', x: id }); } },
         el('div', { class: 'uhead' }, el('b', null, u.name), el('span', { class: 'ucost' }, owned ? 'OWNED' : '⚡' + u.cost)),
-        el('div', { class: 'ukind' }, u.kind === 'passive' ? 'Permanent' : `Active · ${u.once ? 'one use' : Math.round(m.upgradeCd(id)) + 's cooldown'}`),
+        el('div', { class: 'ukind' }, u.kind === 'passive' ? 'Permanent' : `Active · ${u.once ? 'one use' : Math.round(m.upgradeCd(id)) + (m.classic ? ' registers' : 's') + ' cooldown'}`),
         el('div', { class: 'udesc' }, u.desc));
     };
     const ids = Object.keys(R.upgrades);
     H.shop.replaceChildren(
+      ...(m.classic ? [this.roundBar()] : []),
       el('div', { class: 'shophead' }, el('h3', null, 'Upgrades'), el('span', { class: 'sub', style: 'margin:0' }, `⚡ ${me.energy} energy · ${me.passive.length}/${R.slots.passive} permanent · ${me.active.length}/${R.slots.active} active`), el('div', { class: 'spacer' }),
         el('button', { class: 'btn sm ghost', onclick: () => this.toggleShop() }, 'Close')),
       el('div', { class: 'upgrid' }, ids.filter(i => R.upgrades[i].kind === 'passive').map(item), ids.filter(i => R.upgrades[i].kind === 'active').map(item)));
+  }
+
+  /** classic: who starts the round, and the button for the host */
+  private roundBar(): HTMLElement {
+    const m = this.match!;
+    if (m.phase !== 'shop') return el('div', { class: 'roundbar' }, el('b', null, 'Round ' + m.round), el('span', null, 'The shop opens again at the start of the next round.'));
+    const host = m.robots[0];
+    return el('div', { class: 'roundbar open' },
+      el('b', null, 'Round ' + m.round + ' · shop open'),
+      this.localId === 0
+        ? el('button', { class: 'btn primary', onclick: () => this.act({ a: 'ready' }) }, 'Start round ▸')
+        : el('span', null, `Buy now. ${host.name} starts the round.`));
   }
 
   // ================================================================ pause, leave, results
@@ -630,6 +659,7 @@ export class App {
       el('div', { class: 'steps', style: 'margin-top:18px' },
         step('1', 'Program cards, live', 'Move 1/2/3, Back up, Turn left/right and U-turn. Play any card that is cool; bigger moves cool down longer. Keys: W/↑, 2, 3, S/↓, A/←, D/→, X.', 'var(--cyan)'),
         step('2', 'The factory runs in registers', `Every register (${this.save.settings.tick} s, see Settings): blue belts move 2, green belts 1, push panels shove (on the registers printed on them), gears turn you, board lasers fire, then every robot fires its laser forward. Energy cubes and repair wrenches pay out.`, 'var(--acid)'),
+        step('2b', 'Classic mode', 'One card per register, like the board game. Move 2 recharges in 3 registers, Move 3 and Back up in 8 (the number on the card counts down). Every 5 registers a new round starts with a shop: buy upgrades, then the host taps Start round. Energy cubes refill after 8 registers.', 'var(--cyan)'),
         step('3', 'Watch your step', 'Pits and the edge of the floor cost a life. Walls and crates stop movement and lasers. You can push other robots, into pits too.', 'var(--red)'),
         step('4', 'Upgrades', 'Energy buys cards from the Robo Rally deck: Rear Laser, Double Barrel, Rail Gun, Deflector Shield, Mirror Plating, Hover, and actives (Q/E/R): Rocket, EMP, Teleport, Overload, Kamikaze, Reverse Gear. The heavier the weapon, the longer its cooldown.', 'var(--mag)'),
         step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the clock runs out (at least ${fmtTime(R.match.timeLimit)}; longer with long registers). A kill pays ${R.match.killEnergy} energy.`, 'var(--green)')),

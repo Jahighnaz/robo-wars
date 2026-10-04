@@ -4,6 +4,7 @@ A live, real-time take on Robo Rally, branched from Charles Projects (which live
 
 - Simulation (`src/robo`) is headless and seeded: no DOM or rendering imports; it runs in tests.
 - Crew PvP uses `MatchOptions.equal`: rules read `m.spec(rb)` (never `R.chassis` directly) so every robot gets `robo.json` `standard`. Chassis perks only apply vs bots.
+- Classic mode is `MatchOptions.classic`: one card per register (`Robot.played` vs `Match.regCount`), card/upgrade cooldowns in registers (`robo.json` `classic`), a `phase: 'shop'` at each round start that freezes `update()` until the host (robot 0) calls `ready()`.
 - Turn length is `MatchOptions.tick` (player setting, default 10 s). `robo.json` cooldowns are tuned at `match.tick` (2 s) and scale by `Match.pace`; use `m.cardCd()`/`m.upgradeCd()`, never raw json cooldowns.
 - Tunable numbers live in `src/data/robo.json` (validated with zod in `src/robo/data.ts`).
 - Board generation must stay deterministic for a seed: clients rebuild the host's board from it.

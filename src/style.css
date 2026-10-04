@@ -298,3 +298,8 @@ textarea {
   .pcard { height: 70px; }
 }
 .regnum { color: var(--acid); }
+.pcard.spent { opacity: 0.55; }
+.roundbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.roundbar b { font-family: var(--display); letter-spacing: 1px; color: var(--cyan); }
+.roundbar.open { border-color: var(--acid); background: rgba(245,255,59,0.06); }
+.roundbar.open b { color: var(--acid); }

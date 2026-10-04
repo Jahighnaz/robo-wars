@@ -16,6 +16,11 @@ export interface MatchOptions {
   tick?: number;
   /** equal specs (crew PvP): the chassis is only a look; same hull, cooldowns and no perks for everyone */
   equal?: boolean;
+  /**
+   * classic: one card per register, cooldowns counted in registers, and a shop
+   * phase at the start of every round (5 registers) that the host ends.
+   */
+  classic?: boolean;
 }
 
 export interface PlayerSpec { pid: string; name: string; chassis: string; bot?: boolean; color?: string }
@@ -35,6 +40,8 @@ export interface Robot {
   kills: number; deaths: number; dmg: number;
   lastHitBy: number; lastHitT: number;
   prio: number;
+  /** classic: the register count when this robot last played a card */
+  played: number;
 }
 
 export type MatchEvent =
@@ -58,6 +65,8 @@ export type MatchEvent =
   | { k: 'tele'; id: number; from: [number, number] }
   | { k: 'buy'; id: number; up: string }
   | { k: 'reverse'; on: boolean }
+  | { k: 'shop'; n: number }
+  | { k: 'round'; n: number }
   | { k: 'over'; winner: number };
 
 /** beam end points are in cell units: (row, col) of the cell centre, or of the edge it stopped at */
@@ -83,11 +92,18 @@ export class Match {
   readonly pace: number;
   readonly timeLimit: number;
   readonly equal: boolean;
+  readonly classic: boolean;
+  /** registers run so far; round = 1 + floor(regCount / 5) */
+  regCount = 0;
+  /** classic: 'shop' freezes the factory until the host starts the round */
+  phase: 'shop' | 'run' = 'run';
 
   constructor(readonly seed: number, players: PlayerSpec[], opts: MatchOptions = {}) {
     this.tick = Math.max(1, opts.tick ?? R.match.tick);
     this.pace = this.tick / R.match.tick;
     this.equal = !!opts.equal;
+    this.classic = !!opts.classic;
+    if (this.classic) this.phase = 'shop';
     // a long register needs a longer clock: at least 45 registers
     this.timeLimit = Math.max(R.match.timeLimit, Math.round(45 * this.tick));
     this.rng = new Rng(seed ^ 0x9e3779b9);
@@ -107,7 +123,7 @@ export class Match {
       hp: ch.hp, maxHp: ch.hp, lives: R.match.lives, energy: R.match.startEnergy,
       alive: true, out: false, respawnT: 0, guardT: R.match.spawnGuard, jamT: 0, busyT: 0,
       cds, passive: [], active: [], acd: {}, shieldUp: true,
-      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1,
+      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1, played: -1,
     };
     for (const u of ch.starts) this.install(rb, u);
     this.robots.push(rb);
@@ -166,11 +182,24 @@ export class Match {
     return this.equal ? { ...ch, hp: R.standard.hp, cdMul: 1, starts: [], heavy: false, ram: 0, pick: 0, miner: false } : ch;
   }
   spec(rb: Robot): ChassisDef { return this.specOf(rb.chassis); }
-  cardCd(rb: Robot, card: CardId): number { return R.cards[card].cd * this.spec(rb).cdMul * this.pace; }
-  upgradeCd(up: string): number { return (R.upgrades[up].cd ?? 0) * this.pace; }
+  /** live: seconds; classic: registers */
+  cardCd(rb: Robot, card: CardId): number { return this.classic ? R.classic.cards[card] ?? 0 : R.cards[card].cd * this.spec(rb).cdMul * this.pace; }
+  upgradeCd(up: string): number { const cd = R.upgrades[up].cd ?? 0; return this.classic ? Math.ceil(cd / R.match.tick) : cd * this.pace; }
+  get round(): number { return 1 + Math.floor(this.regCount / 5); }
+  /** classic: this robot already used its card this register */
+  spent(rb: Robot): boolean { return this.classic && rb.played === this.regCount; }
+  canBuy(): boolean { return !this.classic || this.phase === 'shop'; }
+
+  /** classic: the host ends the shop phase and the round runs. */
+  ready(id: number): boolean {
+    if (!this.classic || this.phase !== 'shop' || id !== 0) return false;
+    this.phase = 'run';
+    this.emit({ k: 'round', n: this.round });
+    return true;
+  }
 
   canPlay(rb: Robot, card: CardId): boolean {
-    return !this.over && rb.alive && !rb.out && rb.busyT <= 0 && rb.jamT <= 0 && rb.cds[card] <= 0;
+    return !this.over && this.phase === 'run' && rb.alive && !rb.out && rb.busyT <= 0 && rb.jamT <= 0 && rb.cds[card] <= 0 && !this.spent(rb);
   }
 
   play(id: number, card: CardId): boolean {
@@ -189,6 +218,7 @@ export class Match {
       case 'uturn': rb.d = OPP(rb.d); this.emit({ k: 'turn', id }); break;
     }
     rb.cds[card] = this.cardCd(rb, card);
+    rb.played = this.regCount;
     rb.busyT = Math.max(0.12, steps * R.match.stepTime);
     this.prioritise();
     return true;
@@ -197,7 +227,7 @@ export class Match {
   /** Buy an upgrade with energy (any time, like picking up an upgrade card). */
   buy(id: number, up: string): boolean {
     const rb = this.robots[id], u = R.upgrades[up];
-    if (!rb || !u || rb.out || this.over || this.has(rb, up) || rb.energy < u.cost) return false;
+    if (!rb || !u || rb.out || this.over || !this.canBuy() || this.has(rb, up) || rb.energy < u.cost) return false;
     const list = u.kind === 'passive' ? rb.passive : rb.active;
     if (list.length >= (u.kind === 'passive' ? R.slots.passive : R.slots.active)) return false;
     rb.energy -= u.cost;
@@ -215,7 +245,7 @@ export class Match {
   /** Fire an active upgrade. Teleport needs a target tile. */
   use(id: number, up: string, target?: { r: number; c: number }): boolean {
     const rb = this.robots[id], u = R.upgrades[up];
-    if (!rb || !u || u.kind !== 'active' || !rb.active.includes(up) || !rb.alive || rb.out || this.over || (rb.acd[up] ?? 0) > 0 || rb.busyT > 0) return false;
+    if (!rb || !u || u.kind !== 'active' || !rb.active.includes(up) || !rb.alive || rb.out || this.over || this.phase !== 'run' || (rb.acd[up] ?? 0) > 0 || rb.busyT > 0) return false;
     switch (up) {
       case 'rocket': this.rocket(rb, u.dmg ?? 2); break;
       case 'emp': this.empBlast(rb, u.radius ?? 6, (u.jam ?? 4) * this.pace); break;
@@ -533,22 +563,33 @@ export class Match {
       if (cell.type === 'energy' && (!this.drained.has(idx) || this.register === 5)) {
         const n = this.spec(rb).miner ? 2 : 1;
         rb.energy += n;
-        this.drained.set(idx, R.match.energyRecharge);
+        this.drained.set(idx, this.classic ? R.classic.energyRecharge : R.match.energyRecharge);
         this.emit({ k: 'energy', id: rb.id, n });
       }
       if (cell.type === 'wrench' && rb.hp < rb.maxHp) { rb.hp++; this.emit({ k: 'heal', id: rb.id }); }
     }
     for (const [idx, n] of this.drained) { if (n <= 1) this.drained.delete(idx); else this.drained.set(idx, n - 1); }
     this.register = (this.register % 5) + 1;
+    this.regCount++;
+    if (this.classic) {
+      // cooldowns count down in registers; a new round opens the shop
+      for (const rb of this.robots) {
+        for (const k of CARD_IDS) if (rb.cds[k] > 0) rb.cds[k]--;
+        for (const k in rb.acd) if (rb.acd[k] > 0) rb.acd[k]--;
+      }
+      if (this.register === 1) { this.phase = 'shop'; this.emit({ k: 'shop', n: this.round }); }
+    }
   }
 
   // ------------------------------------------------------------ main loop
   update(dt: number): void {
-    if (this.over) return;
+    if (this.over || this.phase === 'shop') return;
     this.t += dt;
     for (const rb of this.robots) {
-      for (const k of CARD_IDS) if (rb.cds[k] > 0) rb.cds[k] = Math.max(0, rb.cds[k] - dt);
-      for (const k in rb.acd) if (rb.acd[k] > 0) rb.acd[k] = Math.max(0, rb.acd[k] - dt);
+      if (!this.classic) {
+        for (const k of CARD_IDS) if (rb.cds[k] > 0) rb.cds[k] = Math.max(0, rb.cds[k] - dt);
+        for (const k in rb.acd) if (rb.acd[k] > 0) rb.acd[k] = Math.max(0, rb.acd[k] - dt);
+      }
       if (rb.busyT > 0) rb.busyT -= dt;
       if (rb.jamT > 0) rb.jamT -= dt;
       if (rb.guardT > 0) rb.guardT -= dt;

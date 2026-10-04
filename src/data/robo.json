@@ -214,5 +214,17 @@
   },
   "standard": {
     "hp": 10
+  },
+  "classic": {
+    "cards": {
+      "move1": 0,
+      "move2": 3,
+      "move3": 8,
+      "back": 8,
+      "left": 0,
+      "right": 0,
+      "uturn": 0
+    },
+    "energyRecharge": 8
   }
 }

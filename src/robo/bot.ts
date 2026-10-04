@@ -113,6 +113,8 @@ export class Bots {
   update(): void {
     const m = this.m;
     if (m.over) return;
+    // classic shop phase: the clock is frozen, so bots shop right away
+    if (m.phase === 'shop') { for (const rb of m.robots) if (rb.bot && !rb.out) this.shop(rb); return; }
     for (const rb of m.robots) {
       if (!rb.bot || rb.out) continue;
       const due = this.next.get(rb.id) ?? 0;

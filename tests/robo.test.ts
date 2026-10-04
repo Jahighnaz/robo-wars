@@ -142,4 +142,48 @@ describe('robo rally rules, live', () => {
     m.update(m.tick + 0.01);
     expect(t.hp).toBe(R.standard.hp - R.match.laserDmg);
   });
+
+  it('classic: one card per register, cooldowns in registers, a shop between rounds', () => {
+    const m = new Match(21, P(2), { classic: true, tick: 2 });
+    blank(m);
+    const a = place(m, 0, 5, 3, 1); place(m, 1, 9, 12, 0);
+    // round 1 opens with the shop: nothing runs, buying works, only the host starts the round
+    expect(m.phase).toBe('shop');
+    m.update(5);
+    expect(m.t).toBe(0);
+    expect(m.buy(0, 'rear')).toBe(true);
+    expect(m.play(0, 'move1')).toBe(false);
+    expect(m.ready(1)).toBe(false);
+    expect(m.ready(0)).toBe(true);
+    // one card this register, then the next register frees it
+    expect(m.play(0, 'move2')).toBe(true);
+    expect(a.cds.move2).toBe(3);
+    expect(m.play(0, 'left')).toBe(false);
+    expect(m.buy(0, 'dbl')).toBe(false); // no shopping mid-round
+    m.update(2.01);
+    expect(m.regCount).toBe(1);
+    expect(a.cds.move2).toBe(2);
+    expect(m.play(0, 'move3')).toBe(true);
+    expect(a.cds.move3).toBe(8);
+    // after five registers the shop opens again
+    for (let i = 0; i < 4; i++) m.update(2);
+    expect(m.regCount).toBe(5);
+    expect(m.phase).toBe('shop');
+    expect(m.round).toBe(2);
+    expect(a.cds.move3).toBe(4);
+  });
+
+  it('classic: energy cubes refill after 8 registers', () => {
+    const m = new Match(22, P(2), { classic: true, tick: 2 });
+    const b = blank(m);
+    cellAt(b, 4, 4)!.type = 'energy';
+    const a = place(m, 0, 4, 4, 0); place(m, 1, 9, 12, 0);
+    const e0 = a.energy;
+    let regs = 0;
+    while (regs < 12) { if (m.phase === 'shop') m.ready(0); m.update(2); regs = m.regCount; }
+    // register 1 pays; register 5 always pays (reference rule) and restarts the 8-register refill,
+    // so the next payout is register 10 (a register 5 again), not 13
+    expect(a.energy - e0).toBe(3);
+    expect(m.drained.size).toBe(1);
+  });
 });
