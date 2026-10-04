@@ -16,7 +16,9 @@ const cache = new Map<string, Promise<THREE.Object3D | null>>();
 function load(chassis: string): Promise<THREE.Object3D | null> {
   let p = cache.get(chassis);
   if (!p) {
-    p = loader.loadAsync(`models/${chassis}.glb`).then(g => g.scene).catch(() => null);
+    // a host that won't serve .glb (the claude.ai test page) can point elsewhere: window.__ROBO_MODELS = 'models/{id}.bin'
+    const pattern = (globalThis as { __ROBO_MODELS?: string }).__ROBO_MODELS ?? 'models/{id}.glb';
+    p = loader.loadAsync(pattern.replace('{id}', chassis)).then(g => g.scene).catch(() => null);
     cache.set(chassis, p);
   }
   return p;
