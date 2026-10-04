@@ -1,0 +1,215 @@
+{
+  "board": {
+    "cols": 16,
+    "rows": 11,
+    "belts": 3,
+    "gears": 6,
+    "pits": 5,
+    "walls": 14,
+    "lasers": 3,
+    "pushers": 2,
+    "energy": 5,
+    "wrenches": 2,
+    "crates": 3
+  },
+  "match": {
+    "tick": 2.0,
+    "lives": 3,
+    "timeLimit": 300,
+    "respawn": 3,
+    "spawnGuard": 1.5,
+    "startEnergy": 3,
+    "killEnergy": 2,
+    "stepTime": 0.22,
+    "laserDmg": 1,
+    "boardLaserDmg": 1,
+    "creditWindow": 6,
+    "energyRecharge": 5
+  },
+  "cards": {
+    "move1": {
+      "name": "Move 1",
+      "cd": 0.9,
+      "glyph": "1"
+    },
+    "move2": {
+      "name": "Move 2",
+      "cd": 1.8,
+      "glyph": "2"
+    },
+    "move3": {
+      "name": "Move 3",
+      "cd": 3.0,
+      "glyph": "3"
+    },
+    "back": {
+      "name": "Back up",
+      "cd": 1.2,
+      "glyph": "B"
+    },
+    "left": {
+      "name": "Turn left",
+      "cd": 0.5,
+      "glyph": "L"
+    },
+    "right": {
+      "name": "Turn right",
+      "cd": 0.5,
+      "glyph": "R"
+    },
+    "uturn": {
+      "name": "U-turn",
+      "cd": 1.2,
+      "glyph": "U"
+    }
+  },
+  "chassis": {
+    "clank": {
+      "name": "Clank",
+      "move": "walk",
+      "hp": 11,
+      "cdMul": 1.15,
+      "color": "#ffd23f",
+      "perk": "Sturdy walker: the most hull (11), steps a little slower.",
+      "starts": []
+    },
+    "bruiser": {
+      "name": "Bruiser",
+      "move": "treads",
+      "hp": 10,
+      "cdMul": 1,
+      "color": "#ff3b4a",
+      "perk": "Heavy tank: starts with the Double Barrel and shrugs off knockback.",
+      "starts": [
+        "dbl"
+      ],
+      "heavy": true
+    },
+    "roller": {
+      "name": "Roller",
+      "move": "wheels",
+      "hp": 9,
+      "cdMul": 0.8,
+      "color": "#5dff8a",
+      "perk": "Fast wheels: cards cool down 20% quicker, starts with a Rocket Launcher.",
+      "starts": [
+        "rocket"
+      ]
+    },
+    "whirl": {
+      "name": "Whirl",
+      "move": "slide",
+      "hp": 9,
+      "cdMul": 1,
+      "color": "#2ee6ff",
+      "perk": "Saw skirt: hovers over pits, and ramming another robot deals 2 damage.",
+      "starts": [
+        "hover"
+      ],
+      "ram": 2
+    },
+    "picks": {
+      "name": "Picks",
+      "move": "crawl",
+      "hp": 9,
+      "cdMul": 1,
+      "color": "#a774ff",
+      "perk": "Pickaxe: every register it swings at the robot in front for 3, and mines double energy.",
+      "starts": [],
+      "pick": 3,
+      "miner": true
+    }
+  },
+  "upgrades": {
+    "rear": {
+      "name": "Rear Laser",
+      "kind": "passive",
+      "cost": 3,
+      "desc": "Your laser also fires backwards."
+    },
+    "dbl": {
+      "name": "Double Barrel",
+      "kind": "passive",
+      "cost": 3,
+      "desc": "Your laser deals 1 extra damage."
+    },
+    "rail": {
+      "name": "Rail Gun",
+      "kind": "passive",
+      "cost": 4,
+      "desc": "Your laser goes through walls and hits every robot in the line."
+    },
+    "shield": {
+      "name": "Deflector Shield",
+      "kind": "passive",
+      "cost": 4,
+      "desc": "Blocks the first hit you take each register."
+    },
+    "jedi": {
+      "name": "Mirror Plating",
+      "kind": "passive",
+      "cost": 5,
+      "desc": "Lasers from the front bounce back to the shooter. Rail guns pierce it."
+    },
+    "hover": {
+      "name": "Hover Unit",
+      "kind": "passive",
+      "cost": 3,
+      "desc": "Pits can't swallow you."
+    },
+    "rocket": {
+      "name": "Rocket Launcher",
+      "kind": "active",
+      "cost": 3,
+      "cd": 9,
+      "dmg": 2,
+      "desc": "A rocket down your facing line: 2 damage, knocks the target back, 1 splash. Walls stop it."
+    },
+    "emp": {
+      "name": "EMP",
+      "kind": "active",
+      "cost": 4,
+      "cd": 18,
+      "radius": 6,
+      "jam": 4,
+      "desc": "Jams every robot within 6 tiles: their cards lock for 4 s and shields drop."
+    },
+    "tele": {
+      "name": "Teleporter",
+      "kind": "active",
+      "cost": 3,
+      "cd": 14,
+      "range": 5,
+      "desc": "Blink to any tile within 5. Mind the pits."
+    },
+    "over": {
+      "name": "Overload",
+      "kind": "active",
+      "cost": 5,
+      "cd": 22,
+      "dmg": 3,
+      "desc": "A supercharged beam through walls and robots: 3 damage, knocks them back 3."
+    },
+    "kami": {
+      "name": "Kamikaze",
+      "kind": "active",
+      "cost": 2,
+      "cd": 0,
+      "dmg": 3,
+      "once": true,
+      "desc": "Charge to the next wall, ram everything in the way and blow up (3 damage around). Costs you a life."
+    },
+    "rev": {
+      "name": "Reverse Gear",
+      "kind": "active",
+      "cost": 2,
+      "cd": 20,
+      "dur": 8,
+      "desc": "Every conveyor belt runs backwards for 8 s."
+    }
+  },
+  "slots": {
+    "passive": 3,
+    "active": 3
+  }
+}

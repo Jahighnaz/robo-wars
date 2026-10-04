@@ -8,15 +8,15 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icons/*.png', 'charles/*.png', 'avatars/*/*.png'],
+      includeAssets: ['icons/*.png', 'robots/*.png'],
       manifest: {
-        name: 'Charles Projects',
-        short_name: 'Charles',
-        description: 'Captain Charles builds a workshop truck from blocks and fights off evolving machines.',
+        name: 'Robo Wars',
+        short_name: 'Robo Wars',
+        description: 'Robo Rally, live: program your robot card by card and blast your crew off the factory floor.',
         theme_color: '#05060b',
         background_color: '#05060b',
         display: 'standalone',
-        orientation: 'any',
+        orientation: 'landscape',
         start_url: './',
         scope: './',
         icons: [

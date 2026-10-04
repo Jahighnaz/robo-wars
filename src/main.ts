@@ -10,7 +10,7 @@ async function boot() {
   // Wait for the display fonts so canvas text uses them from the first frame.
   try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]); } catch { /* ignore */ }
   const app = new App(save);
-  Object.assign(window as object, { __scrap: app, __renderMusic: renderPreview }); // handy for debugging from the console
+  Object.assign(window as object, { __robo: app, __renderMusic: renderPreview }); // handy for debugging from the console
 
   const banner = document.getElementById('update')!;
   const updateSW = registerSW({

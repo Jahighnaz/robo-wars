@@ -1,6 +1,5 @@
 // Shaders and procedural textures for the neon 3D look.
 import * as THREE from 'three';
-import { iconPath } from '../icons';
 
 /**
  * Neon block material: dark body, bright glowing edges on every face, optional
@@ -201,58 +200,6 @@ export const ringTexture = () => canvasTex(128, 128, g => {
   g.shadowColor = '#fff'; g.shadowBlur = 10;
   g.beginPath(); g.arc(64, 64, 52, 0, Math.PI * 2); g.stroke();
 });
-
-/** Atlas of block icons (white strokes on transparent), one 64px cell per block type. */
-export function iconAtlas(types: string[]): THREE.CanvasTexture {
-  const S = 128;
-  const tex = canvasTex(S * types.length, S, g => {
-    types.forEach((t, i) => {
-      g.save();
-      g.translate(i * S + S * 0.2, S * 0.2);
-      g.scale((S * 0.6) / 24, (S * 0.6) / 24);
-      g.strokeStyle = '#fff'; g.lineWidth = 2.3; g.lineJoin = 'round'; g.lineCap = 'round';
-      g.stroke(iconPath(t));
-      g.restore();
-    });
-  });
-  tex.flipY = true;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-export function hazardTexture(color: string, edge: string, kind: string): THREE.CanvasTexture {
-  const hexA = (hex: string, a: number) => {
-    const n = parseInt(hex.slice(1), 16);
-    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-  };
-  const W = 256, o = W / 2;
-  return canvasTex(W, W, g => {
-    const gr = g.createRadialGradient(o, o, 0, o, o, o);
-    gr.addColorStop(0, hexA(color, kind === 'ice' ? 0.35 : 0.75));
-    gr.addColorStop(0.85, hexA(color, kind === 'ice' ? 0.25 : 0.5));
-    gr.addColorStop(1, hexA(color, 0));
-    g.fillStyle = gr; g.beginPath(); g.arc(o, o, o, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = hexA(edge, 0.9); g.lineWidth = 4; g.setLineDash([12, 9]);
-    g.beginPath(); g.arc(o, o, o * 0.9, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
-    let seed = 7;
-    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-    if (kind === 'ice') {
-      g.strokeStyle = hexA(edge, 0.6); g.lineWidth = 2;
-      for (let i = 0; i < 10; i++) {
-        let x = o + (rnd() - 0.5) * o, y = o + (rnd() - 0.5) * o;
-        g.beginPath(); g.moveTo(x, y);
-        for (let j = 0; j < 4; j++) { x += (rnd() - 0.5) * 60; y += (rnd() - 0.5) * 60; g.lineTo(x, y); }
-        g.stroke();
-      }
-    } else {
-      for (let i = 0; i < 30; i++) {
-        const a = rnd() * Math.PI * 2, rr = rnd() * o * 0.75;
-        g.fillStyle = hexA(kind === 'lava' ? '#ffd27a' : edge, kind === 'lava' ? 0.55 : 0.3);
-        g.beginPath(); g.arc(o + Math.cos(a) * rr, o + Math.sin(a) * rr, 3 + rnd() * 9, 0, Math.PI * 2); g.fill();
-      }
-    }
-  });
-}
 
 /** Circular saw blade (white on transparent), tinted by the decal shader. */
 export const sawTexture = () => canvasTex(128, 128, g => {

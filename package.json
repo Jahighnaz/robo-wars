@@ -1,5 +1,5 @@
 {
-  "name": "scrap-evolution",
+  "name": "robo-wars",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -7,9 +7,8 @@
     "dev": "vite --host",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host",
-    "test": "vitest run --exclude tests/balance.test.ts",
-    "typecheck": "tsc --noEmit",
-    "sim": "vitest run tests/balance.test.ts"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

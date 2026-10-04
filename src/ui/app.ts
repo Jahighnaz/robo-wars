@@ -1,1378 +1,651 @@
-// Screens, HUD and the main loop. Owns the save and the current run.
-import { B, CABS, DNAME, DTYPES, fam, isCab, isUnlocked, PLACEABLE, tierMark, RES, RES_KEYS, T, WORLDS, WORLD_KEYS, type Cost, type ResKey } from '../data';
-import { angDiff, clamp, fmtTime, lerp, roman } from '../core/math';
-import { describeSpecies } from '../enemies/species';
-import { Run, type Card, type RunResult } from '../sim/run';
-import { Renderer3D } from '../render/three/renderer3d';
-import { Preview3D } from '../render/three/preview3d';
-import { iconSvg } from '../render/icons';
-import { Joystick } from '../input/joystick';
-import { setMuted, shotSnd, snd, uiSnd, unlockAudio } from '../audio/audio';
-import { jingle, music, type Mood } from '../audio/music';
-import { defaultSave, exportCode, importCode, type Save, type Settings } from '../persistence/save';
+// Robo Wars app: hub with the robot picker, battles against bots or the crew,
+// the live HUD (program cards, upgrades, shop) and the results screen.
+import { $, el } from './dom';
+import { setMuted, uiSnd, unlockAudio } from '../audio/audio';
+import { sfx } from '../audio/sfx';
+import { music, type Mood } from '../audio/music';
+import { timeSeed } from '../core/rng';
+import { fmtTime } from '../core/math';
 import { persist } from '../persistence/storage';
-import {
-  compileVehicle, freshMods, makeVehicle, removeFromBuild, validCells,
-  type Block, type BuildCell,
-} from '../vehicle/vehicle';
-import { $, el, gem } from './dom';
-import { accumulate, addChallengeEntry, challengeScore, exportCard, importCard, publicProfile, type Challenge, type Profile } from '../meta/profile';
-import { applyRun, fmtRecord, standings, type RecordDef } from '../meta/records';
-import { evaluate, TIER_ORDER, TROPHIES, type TrophyDef } from '../meta/trophies';
+import type { Difficulty, Save } from '../persistence/save';
+import { Arena3D } from '../render/three/arena3d';
+import { Bots, type BotBrain } from '../robo/bot';
+import { CARD_IDS, CHASSIS_IDS, R, TEAM_COLORS, type CardId } from '../robo/data';
+import { Match, type MatchEvent, type PlayerSpec, type Robot } from '../robo/match';
 import { cleanCode, Crew, newCrewCode, type CrewMsg } from '../net/crew';
-import { encodeSnapshot, Mirror, SNAP_HZ, startInfo, type CoopMsg, type CoopStart } from '../net/coop';
-import { PLAYER_COLORS, type PlayerSpec } from '../sim/run';
-import { AVATARS, avatarOf } from '../meta/avatars';
+import { applySnapshot, SNAP_HZ, snapshot, type Action, type LobbySeat, type PublicProfile } from '../net/robonet';
 
-type Mode = 'hub' | 'garage' | 'run' | 'cards' | 'place' | 'pause' | 'debrief' | 'menu';
-const STEP = 1 / 60;
-const PERK_ICON = 'M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z';
+const BRAINS: Record<Difficulty, BotBrain> = {
+  easy: { think: 1.1, skill: 0.45 },
+  normal: { think: 0.7, skill: 0.7 },
+  hard: { think: 0.42, skill: 0.92 },
+};
+const BOT_NAMES = ['Sprocket', 'Torque', 'Rusty', 'Gizmo', 'Widget', 'Bolt', 'Ratchet', 'Clamp', 'Dynamo', 'Flux', 'Servo', 'Piston'];
+const CARD_ICON: Record<CardId, string> = { move1: '▲', move2: '▲▲', move3: '▲▲▲', back: '▼', left: '↺', right: '↻', uturn: '⟲' };
+const KEYS: Record<string, CardId> = { w: 'move1', arrowup: 'move1', '1': 'move1', '2': 'move2', '3': 'move3', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', x: 'uturn', u: 'uturn' };
 
-interface CoopState {
-  role: 'host' | 'client';
-  mirror?: Mirror;
-  /** host: card offers waiting for a remote player's pick */
-  offers: Map<string, Card[]>;
-  /** cards this device is choosing from right now */
-  myCards: Card[] | null;
-  lastSnap: number; lastIn: number; waitWarned?: boolean;
-}
-
-interface GridItem { x: number; y: number; t: string; r: number; hp?: number; max?: number }
+type Role = 'solo' | 'host' | 'client';
 
 export class App {
-  save: Save;
-  run: Run | null = null;
-  mode: Mode = 'hub';
   private ui = $('ui');
-  private renderer: Renderer3D;
-  private preview: Preview3D | null = null;
-  private joy: Joystick;
-  private acc = 0;
-  private last = 0;
-  private hudT = 0;
-  private levelFlash = -1;
-  private endTimer = -1;
-  private prev = { x: 0, y: 0, h: 0 };
-  private toastTimer = 0;
-  // garage state
-  private gTool: string | null = null;
-  private gSel: BuildCell | null = null;
-  private gTab: 'workshop' | 'craft' = 'workshop';
-  private gFresh: BuildCell | null = null;
-  // social
+  private hud = $('hud');
+  private arena: Arena3D;
   private crew: Crew;
+  private match: Match | null = null;
+  private bots: Bots | null = null;
+  private role: Role | null = null;
+  private localId = -1;
+  private paused = false;
+  private acc = 0;
+  private last = performance.now();
+  private snapAcc = 0;
+  private snapEv: MatchEvent[] = [];
+  private targeting: string | null = null;
+  private shopOpen = false;
+  private ended = false;
   private screen = '';
-  private activeChallenge: Challenge | null = null;
-  private pauseAt = 0;
-  private trophyQueue: TrophyDef[] = [];
-  private trophyShowing = false;
-  private crewWasOnline = false;
-  private joinCode = '';
-  // co-op
-  private coop: CoopState | null = null;
-  private lobby: { wk: string; members: PlayerSpec[] } | null = null;
-  private invite: { wk: string; host: string; hostPid: string; members: string[]; joined: boolean } | null = null;
-  private navAt = 0;
-  private shownId = '';
-  private crewDirty = false;
-  private uiTouchAt = 0;
-  private trayKey = '';
-  private musicState = '';
+  /** host side: open arena lobby */
+  private lobby: { seats: LobbySeat[] } | null = null;
+  /** member side: the host's lobby as last announced */
+  private remoteLobby: Extract<CrewMsg, { k: 'rw_lobby' }> | null = null;
+  private toastT = 0;
+  private hudEls: { cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
+  private hudSig = '';
 
-  constructor(save: Save) {
-    this.save = save;
-    setMuted(save.muted);
-    const cv = $<HTMLCanvasElement>('cv');
-    this.renderer = new Renderer3D(cv, $<HTMLCanvasElement>('ov'));
-    this.crew = new Crew(() => publicProfile(this.profile), m => this.onCrewMsg(m), () => this.onCrewChange());
-    this.joy = new Joystick(cv, () => this.mode === 'run', unlockAudio);
-    window.addEventListener('resize', () => this.onResize());
-    window.addEventListener('orientationchange', () => setTimeout(() => this.onResize(), 200));
-    document.addEventListener('visibilitychange', () => { if (document.hidden && this.mode === 'run') this.showPause(); });
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' || e.key === 'p') { if (this.mode === 'run') this.showPause(); else if (this.mode === 'pause') this.resume(); }
-    });
-    document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('pointerdown', () => { unlockAudio(); music.setEnabled(this.settings.music); }, { capture: true });
-    $('pauseBtn').addEventListener('click', () => this.showPause());
-    // Taps that started on the previous screen must not land on the new one.
-    this.ui.addEventListener('click', e => {
-      if (performance.now() - this.navAt < 250) { e.stopPropagation(); e.preventDefault(); }
-    }, { capture: true });
-    this.ui.addEventListener('pointerdown', () => { this.uiTouchAt = performance.now(); }, { capture: true });
-    $('trophy').addEventListener('click', e => { e.stopPropagation(); this.dismissTrophy(); });
-    this.onResize();
+  constructor(private save: Save) {
+    this.arena = new Arena3D($('cv') as HTMLCanvasElement, $('ov') as HTMLCanvasElement);
+    this.crew = new Crew(() => this.publicProfile(), m => this.onCrew(m), () => this.onCrewChange());
+    setMuted(!save.settings.sound);
+    const resize = () => this.arena.resize(window.innerWidth, window.innerHeight);
+    window.addEventListener('resize', resize);
+    resize();
+    document.addEventListener('pointerdown', () => { unlockAudio(); music.setEnabled(this.save.settings.music); }, { capture: true });
+    ($('cv') as HTMLCanvasElement).addEventListener('pointerdown', e => this.onBoardTap(e));
+    window.addEventListener('keydown', e => this.onKey(e));
+    document.addEventListener('visibilitychange', () => { if (document.hidden && this.role === 'solo' && this.match && !this.match.over) this.pause(true); });
     this.showHub();
-    requestAnimationFrame(t => this.frame(t));
+    const loop = (now: number) => {
+      const dt = Math.min(0.1, (now - this.last) / 1000);
+      this.last = now;
+      this.frame(dt);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
   }
 
-  private get settings(): Settings { return this.save.settings!; }
   private store() { persist(this.save); }
-
-  private onResize() {
-    this.renderer.resize();
-    if (this.run) { this.run.setView(this.renderer.vw, this.renderer.vh); this.renderer.configureSpawn(this.run); }
-    if (this.mode === 'garage') this.showGarage(true);
+  private publicProfile(): PublicProfile {
+    const s = this.save;
+    return { id: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis, wins: s.rec.wins, matches: s.rec.matches };
   }
 
-  // ================================================================ loop
-  private frame(now: number) {
-    const dt = this.last ? Math.min(0.1, (now - this.last) / 1000) : 0;
-    this.last = now;
-    const run = this.run;
-    let alpha = 1;
-    const co = this.coop;
-    if (co && co.role === 'client' && co.mirror) {
-      // co-op client: the host simulates; we predict our truck and smooth the rest
-      const live = this.mode === 'run' || this.mode === 'pause';
-      const v = this.mode === 'run' ? this.joy.read() : { x: 0, y: 0 };
-      if (live) co.mirror.advance(dt, v);
-      const now = performance.now();
-      if (live && now - co.lastIn > 50) { co.lastIn = now; this.crew.send({ k: 'in', pid: this.profile.id, x: v.x, y: v.y }); }
-      if (live && co.mirror.last && now - co.mirror.last > 4000 && !co.waitWarned) { co.waitWarned = true; this.toast('Waiting for the host…', 2500); }
-    } else if (run && (this.mode === 'run' || (co && this.mode === 'pause')) && !run.over) {
-      const v = this.mode === 'run' ? this.joy.read() : { x: 0, y: 0 };
-      run.joy.x = v.x; run.joy.y = v.y;
-      const scale = this.levelFlash > 0 ? 0.2 : 1;
-      this.acc += dt * scale;
-      let n = 0;
-      while (this.acc >= STEP && n < 6) {
-        this.snapshot(run);
-        run.update(STEP);
-        this.acc -= STEP;
-        n++;
-        if (run.over) break;
-      }
-      if (n >= 6) this.acc = 0;
-      alpha = clamp(this.acc / STEP, 0, 1);
-      if (co) this.hostCoopTick();
-      if (!run.over && run.pendingLevels > 0) {
-        if (this.levelFlash < 0) { this.levelFlash = 0.45; snd(880, 0.25, 'triangle', 0.04); this.toast('LEVEL UP', 700); }
-        else {
-          this.levelFlash -= dt;
-          if (this.levelFlash <= 0) { this.levelFlash = -1; this.acc = 0; this.showCards(); }
-        }
-      }
-    }
-    if (co && this.run) this.updateTray();
-    this.updateMusic();
-    if (this.crewDirty) this.flushCrewRender();
-    if (run) {
-      this.drainEvents(run);
-      if (run.over && run.result && this.endTimer < 0 && this.mode !== 'debrief') this.endTimer = run.won ? 1.0 : 1.3;
-      if (this.endTimer >= 0) {
-        this.endTimer -= dt;
-        if (this.endTimer < 0) this.finishRun(run.result!);
-      }
-    }
-    const follow = run ? (run.me.alive || !run.coop ? run.me : run.players.find(p => p.alive) ?? run.me) : null;
-    const V = follow?.V;
-    if (run && follow !== run.me) { this.prev.x = V!.x; this.prev.y = V!.y; this.prev.h = V!.h; }
-    if (co && co.role === 'client' && run) { alpha = 1; this.prev.x = run.V.x; this.prev.y = run.V.y; this.prev.h = run.V.h; }
-    const ip = V
-      ? { alpha, vx: lerp(this.prev.x, V.x, alpha), vy: lerp(this.prev.y, V.y, alpha), vh: this.prev.h + angDiff(this.prev.h, V.h) * alpha }
-      : { alpha: 1, vx: 0, vy: 0, vh: 0 };
-    const showRun = run && (this.mode === 'run' || this.mode === 'cards' || this.mode === 'place' || this.mode === 'pause' || (this.mode !== 'debrief' && run.over));
-    this.renderer.draw(showRun ? run : null, ip, {
-      arcs: this.settings.arcs, shake: this.settings.shake, bloom: this.settings.bloom,
-      joy: { active: this.joy.active && this.mode === 'run', ox: this.joy.ox, oy: this.joy.oy, x: this.joy.x, y: this.joy.y, radius: this.joy.radius },
-      showHint: this.mode === 'run' && !this.joy.everUsed && this.save.runs < 3,
-    }, dt);
-    this.hudT += dt;
-    if (this.hudT > 0.1) { this.hudT = 0; if (run && (this.mode === 'run' || this.mode === 'pause')) this.updateHUD(); }
-    requestAnimationFrame(t => this.frame(t));
-  }
-
-  /** Menu theme in menus, the run track in a shift, the boss variant when a boss is out. */
-  private updateMusic() {
-    const run = this.run;
-    const inRun = !!run && ['run', 'pause', 'cards', 'place'].includes(this.mode) && !run.over;
-    const mood: Mood = !inRun ? 'menu' : run!.t >= T.runLength - 2 || run!.E.some(e => e.bossLv > 0) ? 'boss' : 'run';
-    const ducked = inRun && this.mode !== 'run';
-    // heat: how many enemies are close to the truck (adds layers, not tempo)
-    let near = 0;
-    if (inRun) for (const e of run!.E) if (Math.hypot(e.x - run!.V.x, e.y - run!.V.y) < 340) near++;
-    const heat = near >= 18 ? 2 : near >= 8 ? 1 : 0;
-    const key = mood + ducked + heat;
-    if (key === this.musicState) return;
-    this.musicState = key;
-    music.setHeat(heat);
-    music.setMood(mood);
-    music.setDucked(ducked);
-  }
-
-  private snapshot(run: Run) {
-    this.prev.x = run.V.x; this.prev.y = run.V.y; this.prev.h = run.V.h;
-    for (const e of run.E) { e.px = e.x; e.py = e.y; }
-  }
-
-  private drainEvents(run: Run) {
-    const co = this.coop;
-    for (const ev of run.events) {
-      if (ev.k === 'toast') {
-        // co-op host: share toasts with the crew; personal ones only go to their owner
-        if (co && co.role === 'host') {
-          const mine = !ev.pid || ev.pid === run.me.pid;
-          if (!ev.pid || !mine) this.crew.send({ k: 'ev', msg: ev.msg, ms: ev.ms, pid: ev.pid });
-          if (mine) this.toast(ev.msg, ev.ms);
-        } else this.toast(ev.msg, ev.ms);
-      }
-      else if (ev.k === 'snd') snd(ev.f, ev.dur, ev.type, ev.vol);
-      else if (ev.k === 'shot') shotSnd(ev.f);
-    }
-    run.events.length = 0;
-  }
-
-  // ================================================================ HUD
-  toast(msg: string, ms = 1600) {
+  toast(text: string, ms = 2200) {
     const t = $('toast');
-    t.textContent = msg;
+    t.textContent = text;
     t.classList.add('on');
-    clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => t.classList.remove('on'), ms);
+    clearTimeout(this.toastT);
+    this.toastT = window.setTimeout(() => t.classList.remove('on'), ms);
   }
 
-  private updateHUD() {
-    const G = this.run!;
-    const RUN_LEN = T.runLength;
-    const ht = $('hTime');
-    ht.textContent = G.t < RUN_LEN ? fmtTime(RUN_LEN - G.t) : 'BOSS';
-    ht.classList.toggle('boss', G.t >= RUN_LEN);
-    $('hWave').textContent = G.t < RUN_LEN ? (G.breather ? 'BREATHER' : 'WAVE ' + (G.wave + 1)) : 'DESTROY THE APEX';
-    $('xpbar').style.width = (clamp(G.xp / G.xpNeed, 0, 1) * 100).toFixed(1) + '%';
-    $('hLvl').textContent = 'LV ' + G.level;
-    $('hKills').textContent = G.kills + ' KILLS';
-    const cab = G.V.list.find(b => isCab(b.t));
-    const cf = cab ? clamp(cab.hp / cab.max, 0, 1) : 0;
-    const cb = $('cabbar');
-    cb.style.width = (cf * 100).toFixed(1) + '%';
-    cb.classList.toggle('low', cf < 0.3);
-    const lootEl = $('hLoot');
-    lootEl.replaceChildren(...RES_KEYS.filter(r => G.loot[r] > 0).map(r => el('div', { class: 'lootchip' }, gem(RES[r].color), String(G.loot[r]))));
-    const team = $('hTeam');
-    if (G.coop) {
-      team.classList.remove('off');
-      team.replaceChildren(...G.players.filter(p => !p.gone).map(p => el('span', { class: 'mate' + (p.alive ? '' : ' down'), style: `--pc:${p.color}` },
-        el('i', null), p.name + (p.alive ? ' · ' + p.kills : ' · back in ' + Math.max(1, Math.ceil(p.respawnT)) + 's'))));
-    } else team.classList.add('off');
-    const bb = $('bossbar');
-    if (G.bossE && !G.bossE.dead) {
-      bb.classList.add('on');
-      $('bossname').textContent = 'APEX ' + G.bossE.sp.name.toUpperCase();
-      $('bossfill').style.width = (clamp(G.bossE.hp / G.bossE.max, 0, 1) * 100).toFixed(1) + '%';
-    } else bb.classList.remove('on');
-  }
-
-  // ================================================================ modes
-  private setMode(m: Mode) {
-    this.screen = '';
-    this.mode = m;
-    if (m !== 'run' && m !== 'pause') { $('cardtray').classList.add('off'); this.trayKey = ''; }
-    const inRun = m === 'run';
-    $('hud').classList.toggle('off', !(m === 'run' || m === 'pause'));
-    if (inRun) { this.ui.className = 'hidden'; this.ui.replaceChildren(); }
-    else this.joy.release();
-    if (m !== 'run' && m !== 'pause') $('bossbar').classList.remove('on');
-  }
-
-  private show(cls: string, ...nodes: Node[]) {
-    const id = this.mode + '/' + this.screen;
-    if (id !== this.shownId) { this.shownId = id; this.navAt = performance.now(); }
+  private show(cls: 'solid' | 'dim' | 'hidden', node?: Node) {
     this.ui.className = cls;
-    this.ui.replaceChildren(...nodes);
+    this.ui.replaceChildren(...(node ? [node] : []));
     this.ui.scrollTop = 0;
-  }
-
-  private resume() {
-    if (this.pauseAt && performance.now() - this.pauseAt > 120000) this.award('long_pause');
-    this.pauseAt = 0;
-    this.acc = 0;
-    this.setMode('run');
-  }
-
-  private startRun(wk: string, challenge: Challenge | null = null) {
-    unlockAudio();
-    this.coop = null;
-    this.activeChallenge = challenge;
-    const opts = { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh, avatar: this.profile.avatar };
-    if (challenge) {
-      // fair fight: everyone drives the same stock truck on the same map, and nothing is banked
-      const scratch = defaultSave();
-      scratch.settings = this.save.settings;
-      this.run = new Run(scratch, wk, { ...opts, seed: challenge.seed, exhibition: true });
-    } else this.run = new Run(this.save, wk, opts);
-    this.renderer.configureSpawn(this.run);
-    this.snapshot(this.run);
-    this.acc = 0; this.levelFlash = -1; this.endTimer = -1;
-    this.setMode('run');
-    this.updateHUD();
-    const W = this.run.W;
-    this.toast(challenge ? 'CHALLENGE · ' + WORLDS[wk].name.toUpperCase() + ' · STOCK TRUCK' : WORLDS[wk].name.toUpperCase() + ' · TIER ' + W.tier + ' · GEN ' + W.gen, 2600);
-    if (!this.save.seenHelp) { this.save.seenHelp = true; this.store(); }
-  }
-
-  // ================================================================ shared bits
-  private resChips(res: Partial<Record<ResKey, number>>, filterZero = false) {
-    return el('div', { class: 'resbar' }, RES_KEYS.filter(r => !filterZero || (res[r] || 0) > 0).map(r =>
-      el('div', { class: 'res' }, gem(RES[r].color), RES[r].name, el('b', null, String(res[r] || 0)))));
-  }
-  private costChips(cost: Cost) {
-    return el('div', { class: 'cost' }, (Object.keys(cost) as ResKey[]).map(r =>
-      el('span', { class: (this.save.res[r] || 0) < (cost[r] || 0) ? 'short' : '' }, gem(RES[r].color), cost[r] + ' ' + RES[r].name)));
-  }
-  private canAfford(cost: Cost) { for (const r in cost) if ((this.save.res[r as ResKey] || 0) < (cost[r as ResKey] || 0)) return false; return true; }
-  private pay(cost: Cost) { for (const r in cost) this.save.res[r as ResKey] -= cost[r as ResKey] || 0; }
-  private up(t: string) { return this.save.up[t] || 0; }
-
-  private blockIcon(t: string, size = 26, rot = 0) {
-    return el('span', { html: iconSvg(t, B[t].color, size, rot), style: 'display:grid;place-items:center' });
-  }
-
-  private gridView(list: GridItem[], rlim: number, opts: { valid: [number, number][]; fresh?: GridItem | null; sel?: GridItem | null; maxW: number; onTap: (x: number, y: number, b: GridItem | null) => void }) {
-    const n = rlim * 2 + 1;
-    const csz = Math.floor(clamp((opts.maxW - 34) / n - 4, 34, 76));
-    const valid = new Set(opts.valid.map(c => c[0] + ',' + c[1]));
-    const g = el('div', { class: 'bgrid', style: `grid-template-columns:repeat(${n},${csz}px);--cs:${csz}px` });
-    for (let y = -rlim; y <= rlim; y++) for (let x = -rlim; x <= rlim; x++) {
-      const b = list.find(o => o.x === x && o.y === y);
-      let cell: HTMLButtonElement;
-      if (b) {
-        const d = B[b.t];
-        cell = el('button', {
-          class: 'cell blk' + (isCab(b.t) ? ' cab' : '') + (opts.fresh === b ? ' fresh' : '') + (opts.sel === b ? ' sel' : ''),
-          style: `--bc:${d.color}`,
-          'aria-label': d.name + (d.dir ? ', facing ' + ['forward', 'right', 'back', 'left'][b.r] : ''),
-          onclick: () => opts.onTap(x, y, b),
-          html: iconSvg(b.t, d.color, 24, d.dir ? b.r * 90 : 0),
-        });
-        if (d.dir) cell.append(el('span', { class: 'rot' }, '⟳'));
-        if (tierMark(b.t)) cell.append(el('span', { class: 'tier' }, tierMark(b.t)));
-        if (b.max && b.hp !== undefined && b.hp < b.max) cell.append(el('span', { class: 'hpb' }, el('i', { style: 'width:' + Math.max(0, (b.hp / b.max) * 100) + '%' })));
-      } else {
-        const ok = valid.has(x + ',' + y);
-        cell = el('button', { class: 'cell' + (ok ? ' valid' : ''), 'aria-label': ok ? 'Place here' : 'Empty', onclick: () => opts.onTap(x, y, null) });
-      }
-      g.append(cell);
-    }
-    return el('div', null, el('div', { class: 'fwd' }, 'Front'), el('div', { class: 'gridwrap' }, g));
   }
 
   // ================================================================ hub
   showHub() {
-    this.run = null;
-    this.setMode('hub');
-    const s = this.save, cap = avatarOf(this.profile.avatar);
-    const worlds = WORLD_KEYS.map(k => {
-      const Wd = WORLDS[k], W = s.worlds[k];
-      const maxw = Math.max(...Object.values(Wd.res).map(v => v || 0));
-      const resist = DTYPES.filter(t => W.res[t] > 0).map(t => DNAME[t] + ' ' + Math.round(W.res[t] * 100) + '%');
-      return el('div', { class: 'panel world', style: `--acc:${Wd.theme.accent}` },
-        el('div', { class: 'bandimg' }),
-        k === 'rust' && s.runs === 0 ? el('div', { class: 'badge' }, 'START HERE') : null,
-        el('div', null, el('div', { class: 'kicker', style: `color:${Wd.theme.accent}` }, Wd.tag), el('h3', { class: 'wname' }, Wd.name)),
-        el('div', { class: 'statline' },
-          el('span', { class: 'stat' }, 'TIER ', el('b', null, String(W.tier))),
-          el('span', { class: 'stat' }, 'GEN ', el('b', null, String(W.gen))),
-          el('span', { class: 'stat' }, 'ERA ', el('b', null, String(W.era))),
-          el('span', { class: 'stat' }, 'WINS ', el('b', null, W.wins + '/' + W.runs))),
-        el('div', { class: 'meta' }, Wd.hazardText),
-        el('div', { class: 'profile' }, (Object.keys(Wd.res) as ResKey[]).map(r => el('div', { class: 'prow' }, el('span', { class: 'lbl' }, RES[r].name),
-          el('span', { class: 'bar', style: `color:${RES[r].color};background:${RES[r].color};width:${Math.max(4, ((Wd.res[r] || 0) / maxw) * 130)}px` })))),
-        resist.length ? el('div', { class: 'meta', style: 'color:var(--red)' }, 'Adapted resistances: ' + resist.join(', ') + '.') : null,
-        el('details', null, el('summary', null, W.species.length + ' living species'),
-          el('div', { class: 'species' }, W.species.map(sp => el('div', null, el('b', null, sp.name), ' · gen ' + sp.born + ' · ' + describeSpecies(sp))))),
-        W.log && W.log.length ? el('details', null, el('summary', null, 'Last evolution report'), el('div', { class: 'species' }, W.log.map(l => el('div', null, l)))) : null,
-        el('button', { class: 'btn primary big', style: 'margin-top:auto', onclick: () => this.startRun(k) }, 'Launch ▸'));
-    });
+    this.screen = 'hub';
+    this.endMatchView();
+    music.setMood('menu');
+    const s = this.save;
+    const nameIn = el('input', { class: 'namein', value: s.pilot.name, maxlength: '20', 'aria-label': 'Pilot name', onchange: (e: Event) => { const v = (e.target as HTMLInputElement).value.trim(); if (v) { s.pilot.name = v.slice(0, 20); this.store(); this.crew.send({ k: 'profile', p: this.publicProfile() }); } } });
+    const picker = el('div', { class: 'robots' }, CHASSIS_IDS.map(id => {
+      const ch = R.chassis[id];
+      return el('button', { class: 'robot-card' + (id === s.pilot.chassis ? ' on' : ''), style: `--acc:${ch.color}`, onclick: () => { s.pilot.chassis = id; this.store(); uiSnd(640); this.crew.send({ k: 'profile', p: this.publicProfile() }); this.showHub(); } },
+        el('div', { class: 'robot-art m-' + ch.move }, el('img', { src: `robots/${id === 'picks' ? 'picks' : id}.png`, alt: ch.name, draggable: 'false' })),
+        el('div', { class: 'rname' }, ch.name),
+        el('div', { class: 'rmove' }, { walk: 'Walker', treads: 'Tank treads', wheels: 'Big wheels', slide: 'Saw skirt', crawl: 'Crawler' }[ch.move]),
+        el('div', { class: 'rperk' }, ch.perk),
+        el('div', { class: 'rhull' }, Array.from({ length: ch.hp }, () => el('i'))));
+    }));
+    const diff = (d: Difficulty, label: string) => el('button', { class: 'seg' + (s.settings.difficulty === d ? ' on' : ''), onclick: () => { s.settings.difficulty = d; this.store(); uiSnd(); this.showHub(); } }, label);
+    const rec = s.rec;
     this.show('solid', el('div', { class: 'wrap screen-in' },
       el('div', { class: 'hub-head' },
         el('div', null,
-          el('div', { class: 'kicker' }, 'Build · Survive · Tinker'),
-          el('h1', { class: 'logo', 'data-text': 'CHARLES//PROJECTS' }, 'CHARLES', el('span', { class: 'slash', onclick: () => this.egg('slash') }, '//'), el('span', { class: 'evo' }, 'PROJECTS')),
-          el('div', { class: 'stat', style: 'font-size:12px;display:inline-block;margin-top:14px' }, 'RUNS ', el('b', null, String(s.runs)), ' · WINS ', el('b', null, String(s.wins)), ' · SPECIES FOUND ', el('b', null, String(s.discovered)))),
-        el('div', { class: 'captain' },
-          el('img', { src: cap.portrait, alt: 'Captain ' + cap.name, draggable: 'false', onclick: (e: Event) => this.tapCharles(e.currentTarget as HTMLElement) }),
-          el('div', null, el('div', { class: 'kicker' }, 'Captain'), el('div', { class: 'cname' }, cap.name), el('div', { class: 'meta', style: 'margin-top:6px' }, 'Driver: ', el('b', null, this.profile.name)),
-            el('div', { class: 'avpick', role: 'radiogroup', 'aria-label': 'Choose your captain' }, AVATARS.map(a =>
-              el('button', { class: a.id === cap.id ? 'on' : '', role: 'radio', 'aria-checked': String(a.id === cap.id), title: a.name,
-                onclick: () => { if (a.id === cap.id) return; this.profile.avatar = a.id; this.store(); uiSnd(700); this.showHub(); } },
-                el('img', { src: a.portrait, alt: a.name, draggable: 'false' }))))))),
-      el('p', { class: 'sub' }, "Captain " + cap.name + " drives a workshop truck built from blocks. Bolt on nailguns, saw launchers, hot glue, laser and plasma cutters, survive five minutes of waves and scrap the apex. Every sector evolves against the way you build."),
-      this.resChips(s.res),
+          el('div', { class: 'kicker' }, 'Robo Rally · live'),
+          el('h1', { class: 'logo', 'data-text': 'ROBO//WARS' }, 'ROBO', el('span', { class: 'slash' }, '//'), el('span', { class: 'evo' }, 'WARS')),
+          el('div', { class: 'stat', style: 'display:inline-block;margin-top:14px' }, 'MATCHES ', el('b', null, String(rec.matches)), ' · WINS ', el('b', null, String(rec.wins)), ' · KILLS ', el('b', null, String(rec.kills)))),
+        el('div', { class: 'pilot' }, el('div', { class: 'kicker' }, 'Pilot'), nameIn)),
+      el('p', { class: 'sub' }, 'Play program cards whenever they are cool, dodge pits and conveyor belts, and line up your laser: it fires every register. Energy buys upgrades from the Robo Rally deck, and the heavy hitters take longest to recharge.'),
+      el('h2', null, 'Pick your robot'),
+      picker,
+      el('div', { class: 'modes' },
+        el('div', { class: 'panel mode' },
+          el('h3', null, 'Battle bots'),
+          el('p', { class: 'sub' }, 'You against bot pilots on a fresh factory floor.'),
+          el('div', { class: 'row' }, el('span', { class: 'lbl' }, 'Bots'),
+            el('button', { class: 'btn sm ghost', onclick: () => { s.settings.bots = Math.max(1, s.settings.bots - 1); this.store(); this.showHub(); } }, '−'),
+            el('b', { class: 'count' }, String(s.settings.bots)),
+            el('button', { class: 'btn sm ghost', onclick: () => { s.settings.bots = Math.min(5, s.settings.bots + 1); this.store(); this.showHub(); } }, '+')),
+          el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Skill'), diff('easy', 'Easy'), diff('normal', 'Normal'), diff('hard', 'Hard')),
+          el('button', { class: 'btn primary big', style: 'margin-top:16px', onclick: () => this.startSolo() }, 'Fight ▸')),
+        this.crewPanel()),
       el('div', { class: 'nav' },
-        el('button', { class: 'btn', onclick: () => { uiSnd(); this.gSel = null; this.gTool = null; this.showGarage(); } }, el('span', { html: iconSvg('cab', 'currentColor', 18) }), 'Garage'),
         el('button', { class: 'btn ghost', onclick: () => this.showHelp() }, 'How to play'),
-        el('button', { class: 'btn', onclick: () => this.showCrew() }, 'Crew, co-op & records'),
-        el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies ' + this.trophyCount() + '/' + TROPHIES.length),
-        el('button', { class: 'btn ghost', onclick: () => this.showSettings() }, 'Settings & backup')),
-      el('h2', null, 'Choose a sector'),
-      el('div', { class: 'worlds' }, worlds)));
+        el('button', { class: 'btn ghost', onclick: () => this.showSettings() }, 'Settings'))));
   }
 
-  // ================================================================ help
+  // ---------------------------------------------------------------- crew panel
+  private crewPanel(): HTMLElement {
+    const c = this.crew, s = this.save;
+    const codeIn = el('input', { class: 'codein', value: s.crewCode || '', maxlength: '6', placeholder: 'CODE', 'aria-label': 'Crew code', autocapitalize: 'characters' });
+    let body: HTMLElement;
+    if (c.status === 'off' || c.status === 'error') {
+      body = el('div', null,
+        c.status === 'error' ? el('p', { class: 'err' }, c.error) : el('p', { class: 'sub' }, 'Same Wi-Fi: one device hosts a crew, the others join with its code. Then the host opens the arena and everyone fights live. Empty seats get bots.'),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn', onclick: () => { const code = s.crewCode || newCrewCode(); s.crewCode = code; this.store(); void c.host(code); } }, 'Host a crew'),
+          codeIn,
+          el('button', { class: 'btn', onclick: () => { const code = cleanCode(codeIn.value); if (code.length < 4) { this.toast('Enter the 4-letter crew code'); return; } s.crewCode = code; this.store(); void c.join(code); } }, 'Join')));
+    } else if (c.status === 'connecting') {
+      body = el('p', { class: 'sub' }, 'Connecting to crew ' + c.code + '…');
+    } else {
+      const members = [...c.members.values()].filter(m => c.online.has(m.id));
+      const L = this.lobby, RL = this.remoteLobby;
+      const seated = c.isHost ? !!L : !!RL?.open && RL.seats.some(x => x.pid === s.pilot.id);
+      body = el('div', null,
+        el('div', { class: 'row' }, el('span', { class: 'badge' }, 'CREW ' + c.code), el('span', { class: 'sub', style: 'margin:0' }, members.length + ' online'), el('div', { class: 'spacer' }),
+          el('button', { class: 'btn sm ghost', onclick: () => { this.closeLobby(); c.leave(); } }, 'Leave')),
+        el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
+        c.isHost
+          ? (L ? el('div', null,
+            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots (set the count under Battle bots).'),
+            el('div', { class: 'row' },
+              el('button', { class: 'btn primary', onclick: () => this.startHost() }, 'Start the battle ▸'),
+              el('button', { class: 'btn ghost sm', onclick: () => this.closeLobby() }, 'Close arena')))
+            : el('button', { class: 'btn primary', style: 'margin-top:10px', onclick: () => this.openLobby() }, 'Open the arena'))
+          : RL?.open
+            ? el('div', null,
+              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + '.'),
+              seated ? el('button', { class: 'btn ghost', onclick: () => c.send({ k: 'rw_leave', pid: s.pilot.id }) }, 'Leave seat · waiting for the host')
+                : el('button', { class: 'btn primary', onclick: () => c.send({ k: 'rw_join', seat: { pid: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis } }) }, 'Take a seat ▸'))
+            : el('p', { class: 'sub' }, 'Waiting for the host to open the arena.'));
+    }
+    return el('div', { class: 'panel mode' }, el('h3', null, 'Crew battle'), body);
+  }
+
+  /** bots that join a crew battle: the Battle bots count, up to six robots, at least one opponent */
+  private crewBots(humans: number): number { return Math.max(humans < 2 ? 1 : 0, Math.min(this.save.settings.bots, 6 - humans)); }
+
+  private onCrewChange() {
+    if (this.screen === 'hub') this.showHub();
+  }
+
+  private openLobby() {
+    this.lobby = { seats: [] };
+    this.broadcastLobby();
+    uiSnd(660);
+    this.showHub();
+  }
+  private closeLobby() {
+    if (!this.lobby) return;
+    this.lobby = null;
+    this.broadcastLobby();
+    if (this.screen === 'hub') this.showHub();
+  }
+  private broadcastLobby() {
+    const s = this.save;
+    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots });
+  }
+
+  private onCrew(m: CrewMsg) {
+    const s = this.save;
+    switch (m.k) {
+      case 'rw_lobby': this.remoteLobby = m; if (this.screen === 'hub') this.showHub(); break;
+      case 'rw_join': {
+        if (!this.lobby || this.lobby.seats.some(x => x.pid === m.seat.pid) || this.lobby.seats.length >= 5) break;
+        this.lobby.seats.push(m.seat);
+        this.broadcastLobby();
+        if (this.screen === 'hub') this.showHub();
+        break;
+      }
+      case 'rw_leave': {
+        if (!this.lobby) break;
+        this.lobby.seats = this.lobby.seats.filter(x => x.pid !== m.pid);
+        this.broadcastLobby();
+        if (this.screen === 'hub') this.showHub();
+        break;
+      }
+      case 'rw_start': {
+        const idx = m.players.findIndex(p => p.pid === s.pilot.id);
+        if (idx < 0) break;
+        this.remoteLobby = null;
+        this.match = new Match(m.seed, m.players);
+        this.bots = null;
+        this.role = 'client';
+        this.localId = idx;
+        this.beginMatch();
+        break;
+      }
+      case 'rw_in': {
+        if (this.role !== 'host' || !this.match) break;
+        const rb = this.match.robots.find(r => r.pid === m.pid);
+        if (rb) this.apply(rb.id, m.act);
+        break;
+      }
+      case 'rw_snap': {
+        if (this.role !== 'client' || !this.match) break;
+        const evs = applySnapshot(this.match, m.s);
+        this.handleEvents(evs);
+        break;
+      }
+      case 'rw_end': if (this.role === 'client' && this.match && !this.ended) { this.toast('The host left the battle.'); this.leaveMatch(); } break;
+      default: break;
+    }
+  }
+
+  // ================================================================ start a match
+  private botSpecs(n: number, taken: Set<string>, usedChassis: string[]): PlayerSpec[] {
+    const names = BOT_NAMES.filter(x => !taken.has(x)).sort(() => Math.random() - 0.5);
+    // bots take the chassis nobody picked first, so a battle shows off different robots
+    const used = new Set(usedChassis);
+    const pool = [...CHASSIS_IDS.filter(c => !used.has(c)).sort(() => Math.random() - 0.5), ...[...CHASSIS_IDS].sort(() => Math.random() - 0.5)];
+    return Array.from({ length: n }, (_, i) => ({ pid: 'bot' + i + '-' + Math.random().toString(36).slice(2, 6), name: names[i % names.length], chassis: pool[i % pool.length], bot: true }));
+  }
+
+  private me(): PlayerSpec { const p = this.save.pilot; return { pid: p.id, name: p.name, chassis: p.chassis }; }
+
+  startSolo() {
+    unlockAudio();
+    const players = [this.me(), ...this.botSpecs(this.save.settings.bots, new Set([this.save.pilot.name]), [this.save.pilot.chassis])];
+    players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
+    this.match = new Match(timeSeed(), players);
+    this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
+    this.role = 'solo';
+    this.localId = 0;
+    this.beginMatch();
+  }
+
+  private startHost() {
+    const L = this.lobby;
+    if (!L) return;
+    const seats = L.seats.filter(x => this.crew.online.has(x.pid)).slice(0, 5);
+    const humans: PlayerSpec[] = [this.me(), ...seats.map(x => ({ pid: x.pid, name: x.name, chassis: x.chassis }))];
+    const botN = this.crewBots(humans.length);
+    const players = [...humans, ...this.botSpecs(botN, new Set(humans.map(h => h.name)), humans.map(h => h.chassis))];
+    players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
+    const seed = timeSeed();
+    this.match = new Match(seed, players);
+    this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
+    this.role = 'host';
+    this.localId = 0;
+    this.lobby = null;
+    this.crew.send({ k: 'rw_start', seed, players });
+    this.beginMatch();
+  }
+
+  private beginMatch() {
+    const m = this.match!;
+    unlockAudio();
+    this.screen = 'match';
+    this.ended = false;
+    this.paused = false;
+    this.targeting = null;
+    this.shopOpen = false;
+    this.acc = 0; this.snapAcc = 0; this.snapEv = [];
+    this.arena.localId = this.localId;
+    this.arena.setBoard(m);
+    m.drain();
+    this.show('hidden');
+    this.buildHud();
+    music.setMood('run');
+    const me = m.robots[this.localId];
+    this.toast(`${R.chassis[me.chassis].name} online · lasers fire every ${R.match.tick}s`, 2600);
+  }
+
+  // ================================================================ actions
+  private act(a: Action) {
+    if (!this.match || this.match.over || this.paused) return;
+    if (this.role === 'client') { this.crew.send({ k: 'rw_in', pid: this.save.pilot.id, act: a }); return; }
+    this.apply(this.localId, a);
+  }
+
+  private apply(id: number, a: Action) {
+    const m = this.match!;
+    if (a.a === 'card' && CARD_IDS.includes(a.x)) m.play(id, a.x);
+    else if (a.a === 'buy') m.buy(id, a.x);
+    else if (a.a === 'use') m.use(id, a.x, a.r !== undefined && a.c !== undefined ? { r: a.r, c: a.c } : undefined);
+  }
+
+  private useUpgrade(up: string) {
+    if (up === 'tele') {
+      if (this.targeting) { this.targeting = null; this.arena.highlight = null; return; }
+      const m = this.match!, rb = m.robots[this.localId], range = R.upgrades.tele.range ?? 5;
+      const hl = new Set<number>();
+      for (const cell of m.board.cells) if (Math.abs(cell.r - rb.r) + Math.abs(cell.c - rb.c) <= range && cell.type !== 'crate' && !(m.board.antenna.r === cell.r && m.board.antenna.c === cell.c)) hl.add(cell.r * m.board.cols + cell.c);
+      this.targeting = up;
+      this.arena.highlight = hl;
+      this.toast('Tap a tile to teleport (tap the button again to cancel)', 1800);
+      return;
+    }
+    this.act({ a: 'use', x: up });
+  }
+
+  private onBoardTap(e: PointerEvent) {
+    if (!this.targeting || !this.match) return;
+    const cell = this.arena.pick(e.clientX, e.clientY);
+    const hl = this.arena.highlight;
+    if (!cell || !hl || !hl.has(cell.r * this.match.board.cols + cell.c)) return;
+    this.act({ a: 'use', x: this.targeting, r: cell.r, c: cell.c });
+    this.targeting = null;
+    this.arena.highlight = null;
+  }
+
+  private onKey(e: KeyboardEvent) {
+    if (this.screen !== 'match' || !this.match) return;
+    const k = e.key.toLowerCase();
+    if (k === 'escape') { if (this.shopOpen) this.toggleShop(); else if (this.role === 'solo') this.pause(!this.paused); return; }
+    if (k === 'b') { this.toggleShop(); return; }
+    const card = KEYS[k];
+    if (card) { e.preventDefault(); this.act({ a: 'card', x: card }); return; }
+    const me = this.match.robots[this.localId];
+    const slot = ['q', 'e', 'r'].indexOf(k);
+    if (slot >= 0 && me.active[slot]) this.useUpgrade(me.active[slot]);
+  }
+
+  // ================================================================ frame
+  private frame(dt: number) {
+    const m = this.match;
+    if (m && this.screen === 'match') {
+      if (this.role !== 'client' && !this.paused && !m.over) {
+        this.acc += dt;
+        const step = 1 / 60;
+        while (this.acc >= step) {
+          this.acc -= step;
+          this.bots?.update();
+          m.update(step);
+          const evs = m.drain();
+          if (evs.length) { this.handleEvents(evs); if (this.role === 'host') this.snapEv.push(...evs); }
+        }
+        if (this.role === 'host') {
+          this.snapAcc += dt;
+          if (this.snapAcc >= 1 / SNAP_HZ || m.over) {
+            this.snapAcc = 0;
+            // members who dropped out are taken over by a bot
+            for (const rb of m.robots) if (!rb.bot && rb.id !== this.localId && !this.crew.online.has(rb.pid)) rb.bot = true;
+            this.crew.send({ k: 'rw_snap', s: snapshot(m, this.snapEv) });
+            this.snapEv = [];
+          }
+        }
+      }
+      this.arena.render(m, this.paused ? 0 : dt);
+      this.updateHud();
+      this.updateMusic();
+      if (m.over && !this.ended) { this.ended = true; window.setTimeout(() => this.showResults(), 1400); }
+    }
+  }
+
+  private lastLaserSnd = 0;
+  private handleEvents(evs: MatchEvent[]) {
+    const m = this.match!;
+    this.arena.onEvents(m, evs);
+    const now = performance.now();
+    for (const e of evs) {
+      switch (e.k) {
+        case 'beam':
+          if (e.kind === 'over') sfx.over();
+          else if (e.kind === 'board') sfx.boardLaser();
+          else if (now - this.lastLaserSnd > 90) { this.lastLaserSnd = now; sfx.laser(Math.floor(Math.random() * 6)); }
+          break;
+        case 'rocket': sfx.rocket(); break;
+        case 'blast': sfx.boom(e.size > 2); break;
+        case 'fall': sfx.fall(); if (e.id === this.localId) this.toast('Down the pit!', 1400); break;
+        case 'wreck': sfx.boom(true); break;
+        case 'hit': sfx.hit(); break;
+        case 'shield': sfx.shield(); break;
+        case 'gear': sfx.gear(); break;
+        case 'belt': sfx.belt(); break;
+        case 'push': sfx.push(); break;
+        case 'energy': if (e.id === this.localId) sfx.charge(); break;
+        case 'heal': if (e.id === this.localId) sfx.heal(); break;
+        case 'emp': sfx.emp(); break;
+        case 'tele': sfx.tele(); break;
+        case 'buy': if (e.id === this.localId) sfx.buy(); break;
+        case 'pick': sfx.pick(); break;
+        case 'register': sfx.register(); break;
+        case 'move': if (e.id === this.localId && !e.push) sfx.step(); break;
+        case 'turn': if (e.id === this.localId) sfx.turn(); break;
+        case 'kill': {
+          const k = m.robots[e.killer], v = m.robots[e.victim];
+          if (k && v) this.toast(e.killer === this.localId ? `You scrapped ${v.name}! +${R.match.killEnergy} ⚡` : e.victim === this.localId ? `${k.name} scrapped you` : `${k.name} scrapped ${v.name}`, 1800);
+          break;
+        }
+        case 'reverse': this.toast(e.on ? 'Reverse gear: belts run backwards!' : 'Belts back to normal', 1500); break;
+        default: break;
+      }
+    }
+  }
+
+  private updateMusic() {
+    const m = this.match!;
+    const left = m.robots.filter(r => !r.out).length;
+    const mood: Mood = m.over ? 'menu' : left <= 2 || m.t > R.match.timeLimit - 30 ? 'boss' : 'run';
+    music.setMood(mood);
+    const me = m.robots[this.localId];
+    let near = 0;
+    if (me?.alive) for (const o of m.robots) if (o !== me && o.alive && Math.abs(o.r - me.r) + Math.abs(o.c - me.c) <= 4) near++;
+    music.setHeat(near >= 3 ? 2 : near >= 1 ? 1 : 0);
+  }
+
+  // ================================================================ HUD
+  private buildHud() {
+    const m = this.match!;
+    const cards = new Map<CardId, HTMLButtonElement>();
+    const tray = el('div', { class: 'tray' }, CARD_IDS.map(k => {
+      const b = el('button', { class: 'pcard', 'aria-label': R.cards[k].name, onpointerdown: (e: Event) => { e.preventDefault(); this.act({ a: 'card', x: k }); } },
+        el('span', { class: 'pico' }, CARD_ICON[k]), el('span', { class: 'pname' }, R.cards[k].name), el('span', { class: 'cdv' }));
+      cards.set(k, b);
+      return b;
+    }));
+    const board = el('div', { class: 'scores' });
+    const clock = el('div', { class: 'clock' }, '0:00');
+    const reg = el('div', { class: 'regs' }, [1, 2, 3, 4, 5].map(n => el('i', null, String(n))));
+    const regbar = el('div', { class: 'regbar' }, el('b'));
+    const hull = el('div', { class: 'hull' });
+    const energy = el('div', { class: 'energy' });
+    const passives = el('div', { class: 'passives' });
+    const actives = el('div', { class: 'actives' });
+    const status = el('div', { class: 'mestatus' });
+    const shopBtn = el('button', { class: 'btn sm shopbtn', onclick: () => this.toggleShop() }, 'Upgrades');
+    const shop = el('div', { class: 'shop off' });
+    const menuBtn = el('button', { class: 'iconbtn', 'aria-label': 'Menu', onclick: () => this.role === 'solo' ? this.pause(true) : this.confirmLeave() },
+      el('span', { html: '<svg width="18" height="18" viewBox="0 0 18 18"><rect x="3" y="2" width="4" height="14" fill="currentColor"/><rect x="11" y="2" width="4" height="14" fill="currentColor"/></svg>' }));
+    this.hud.replaceChildren(
+      el('div', { class: 'top' },
+        el('div', { class: 'clockbox' }, clock, el('div', { class: 'reglabel' }, 'REGISTER'), reg, regbar),
+        board,
+        menuBtn),
+      el('div', { class: 'bottom' },
+        el('div', { class: 'me' }, status, hull, energy, passives),
+        tray,
+        el('div', { class: 'side' }, actives, shopBtn)),
+      shop);
+    this.hud.className = '';
+    this.hudEls = { cards, actives, passives, board, clock, reg, regbar, hull, energy, shopBtn, shop, status };
+    this.hudSig = '';
+    void m;
+  }
+
+  private updateHud() {
+    const m = this.match, H = this.hudEls;
+    if (!m || !H) return;
+    const me = m.robots[this.localId];
+    H.clock.textContent = fmtTime(Math.max(0, R.match.timeLimit - m.t));
+    [...H.reg.children].forEach((x, i) => x.classList.toggle('on', i + 1 === m.register));
+    (H.regbar.firstChild as HTMLElement).style.width = (100 * m.tickT / R.match.tick).toFixed(1) + '%';
+    H.regbar.classList.toggle('soon', R.match.tick - m.tickT < 0.6);
+    for (const [k, b] of H.cards) {
+      const cd = me.cds[k], max = R.cards[k].cd * R.chassis[me.chassis].cdMul;
+      const ready = me.alive && !me.out && cd <= 0 && me.jamT <= 0;
+      b.classList.toggle('ready', ready);
+      b.style.setProperty('--cd', String(me.jamT > 0 ? 1 : Math.min(1, cd / max)));
+      (b.lastChild as HTMLElement).textContent = me.jamT > 0 ? 'JAM' : cd > 0 ? cd.toFixed(1) : '';
+    }
+    // things that change rarely: rebuild on a signature change
+    const sig = [me.hp, me.lives, me.energy, me.alive, me.out, me.passive.join(), me.active.join(), m.robots.map(r => `${r.kills}/${r.lives}/${r.hp}/${r.alive}`).join(), this.shopOpen].join('|');
+    if (sig !== this.hudSig) {
+      this.hudSig = sig;
+      H.hull.replaceChildren(el('span', { class: 'lbl' }, 'HULL'), el('span', { class: 'pips' }, Array.from({ length: me.maxHp }, (_, i) => el('i', { class: i < me.hp ? (me.hp <= 3 ? 'low' : 'on') : '' }))));
+      H.energy.replaceChildren(el('span', { class: 'lbl' }, 'ENERGY'), el('b', null, '⚡ ' + me.energy), el('span', { class: 'lives' }, '♥'.repeat(Math.max(0, me.lives)) + '♡'.repeat(Math.max(0, R.match.lives - me.lives))));
+      H.passives.replaceChildren(...me.passive.map(p => el('span', { class: 'chip' }, R.upgrades[p].name)));
+      H.status.textContent = me.out ? 'OUT OF LIVES · watching' : !me.alive ? 'REBOOTING…' : R.chassis[me.chassis].name;
+      H.actives.replaceChildren(...me.active.map((up, i) => el('button', { class: 'abtn', 'data-up': up, onpointerdown: (e: Event) => { e.preventDefault(); this.useUpgrade(up); } },
+        el('span', { class: 'aname' }, R.upgrades[up].name), el('span', { class: 'akey' }, ['Q', 'E', 'R'][i]), el('span', { class: 'acd' }))));
+      H.board.replaceChildren(...m.robots.map((r, i) => el('div', { class: 'sc' + (r.out ? ' out' : '') + (i === this.localId ? ' me' : ''), style: `--acc:${r.color}` },
+        el('img', { src: `robots/${r.chassis}.png`, alt: '' }),
+        el('div', null, el('div', { class: 'scn' }, r.name), el('div', { class: 'scs' }, '♥'.repeat(Math.max(0, r.lives)) + ' · ' + r.kills + ' ✖')))));
+      H.shopBtn.textContent = `Upgrades ⚡${me.energy}`;
+      H.shopBtn.classList.toggle('afford', Object.keys(R.upgrades).some(u => !m.has(me, u) && R.upgrades[u].cost <= me.energy));
+      if (this.shopOpen) this.renderShop();
+    }
+    for (const b of H.actives.children) {
+      const up = (b as HTMLElement).dataset.up!;
+      const cd = me.acd[up] ?? 0, max = R.upgrades[up].cd || 1;
+      (b as HTMLElement).style.setProperty('--cd', String(Math.min(1, cd / max)));
+      b.classList.toggle('ready', cd <= 0 && me.alive);
+      b.classList.toggle('aiming', this.targeting === up);
+      (b.lastChild as HTMLElement).textContent = cd > 0 ? cd.toFixed(0) + 's' : '';
+    }
+  }
+
+  private toggleShop() {
+    this.shopOpen = !this.shopOpen;
+    this.hudEls?.shop.classList.toggle('off', !this.shopOpen);
+    if (this.shopOpen) this.renderShop();
+    uiSnd(this.shopOpen ? 700 : 500);
+  }
+
+  private renderShop() {
+    const m = this.match!, me = m.robots[this.localId], H = this.hudEls!;
+    const item = (id: string) => {
+      const u = R.upgrades[id], owned = m.has(me, id);
+      const full = (u.kind === 'passive' ? me.passive.length >= R.slots.passive : me.active.length >= R.slots.active);
+      const can = !owned && !full && me.energy >= u.cost && !me.out;
+      return el('button', { class: 'upcard' + (owned ? ' owned' : '') + (can ? ' can' : ''), disabled: !can, onclick: () => { this.act({ a: 'buy', x: id }); } },
+        el('div', { class: 'uhead' }, el('b', null, u.name), el('span', { class: 'ucost' }, owned ? 'OWNED' : '⚡' + u.cost)),
+        el('div', { class: 'ukind' }, u.kind === 'passive' ? 'Permanent' : `Active · ${u.once ? 'one use' : (u.cd ?? 0) + 's cooldown'}`),
+        el('div', { class: 'udesc' }, u.desc));
+    };
+    const ids = Object.keys(R.upgrades);
+    H.shop.replaceChildren(
+      el('div', { class: 'shophead' }, el('h3', null, 'Upgrades'), el('span', { class: 'sub', style: 'margin:0' }, `⚡ ${me.energy} energy · ${me.passive.length}/${R.slots.passive} permanent · ${me.active.length}/${R.slots.active} active`), el('div', { class: 'spacer' }),
+        el('button', { class: 'btn sm ghost', onclick: () => this.toggleShop() }, 'Close')),
+      el('div', { class: 'upgrid' }, ids.filter(i => R.upgrades[i].kind === 'passive').map(item), ids.filter(i => R.upgrades[i].kind === 'active').map(item)));
+  }
+
+  // ================================================================ pause, leave, results
+  private pause(on: boolean) {
+    if (this.role !== 'solo' || !this.match) return;
+    this.paused = on;
+    if (!on) { this.show('hidden'); return; }
+    this.show('dim', el('div', { class: 'wrap mid center screen-in', style: 'max-width:640px' },
+      el('div', { class: 'kicker' }, 'Factory floor'),
+      el('div', { class: 'lvl-title' }, 'PAUSED'),
+      el('div', { class: 'row', style: 'justify-content:center;margin-top:20px' },
+        el('button', { class: 'btn primary big', onclick: () => this.pause(false) }, 'Resume'),
+        el('button', { class: 'btn danger', onclick: () => this.leaveMatch() }, 'Quit battle')),
+      el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
+        el('button', { class: 'btn sm ghost', onclick: () => { this.save.settings.sound = !this.save.settings.sound; setMuted(!this.save.settings.sound); this.store(); this.pause(true); } }, 'Sound: ' + (this.save.settings.sound ? 'on' : 'off')),
+        el('button', { class: 'btn sm ghost', onclick: () => { this.save.settings.music = !this.save.settings.music; music.setEnabled(this.save.settings.music); this.store(); this.pause(true); } }, 'Music: ' + (this.save.settings.music ? 'on' : 'off')))));
+  }
+
+  private confirmLeave() {
+    this.show('dim', el('div', { class: 'wrap mid center screen-in', style: 'max-width:640px' },
+      el('div', { class: 'lvl-title' }, 'LEAVE?'),
+      el('p', { class: 'sub', style: 'margin:12px auto' }, this.role === 'host' ? 'You are hosting: leaving ends the battle for everyone.' : 'The battle goes on without you; a bot takes your robot.'),
+      el('div', { class: 'row', style: 'justify-content:center' },
+        el('button', { class: 'btn primary', onclick: () => this.show('hidden') }, 'Keep fighting'),
+        el('button', { class: 'btn danger', onclick: () => this.leaveMatch() }, 'Leave'))));
+  }
+
+  private leaveMatch() {
+    if (this.role === 'host') this.crew.send({ k: 'rw_end' });
+    if (this.role === 'client') this.crew.send({ k: 'rw_leave', pid: this.save.pilot.id });
+    this.match = null;
+    this.showHub();
+  }
+
+  private endMatchView() {
+    this.hud.className = 'off';
+    this.hudEls = null;
+    this.arena.highlight = null;
+    this.targeting = null;
+  }
+
+  private showResults() {
+    const m = this.match;
+    if (!m) return;
+    this.screen = 'results';
+    const me = m.robots[this.localId];
+    const order = m.standings();
+    const won = order[0] === me;
+    const rec = this.save.rec;
+    rec.matches++; rec.kills += me.kills; rec.deaths += me.deaths;
+    if (won) { rec.wins++; rec.byChassis[me.chassis] = (rec.byChassis[me.chassis] || 0) + 1; }
+    rec.bestStreak = Math.max(rec.bestStreak, me.kills);
+    this.store();
+    this.crew.send({ k: 'profile', p: this.publicProfile() });
+    this.endMatchView();
+    music.setMood('menu');
+    this.show('dim', el('div', { class: 'wrap screen-in', style: 'max-width:820px' },
+      el('div', { class: 'center' },
+        el('div', { class: 'kicker' }, won ? 'Last robot rolling' : 'Battle over'),
+        el('div', { class: 'lvl-title', style: `color:${won ? 'var(--acid)' : 'var(--mag)'}` }, won ? 'VICTORY' : order[0].name.toUpperCase() + ' WINS')),
+      el('div', { class: 'panel', style: 'margin-top:18px' },
+        el('table', { class: 'standings' },
+          el('tr', null, el('th', null, '#'), el('th', null, 'Robot'), el('th', null, 'Kills'), el('th', null, 'Deaths'), el('th', null, 'Damage'), el('th', null, 'Lives')),
+          order.map((r, i) => el('tr', { class: r === me ? 'me' : '', style: `--acc:${r.color}` },
+            el('td', null, String(i + 1)),
+            el('td', null, el('span', { class: 'who' }, el('img', { src: `robots/${r.chassis}.png`, alt: '' }), r.name, r.bot ? el('small', null, ' bot') : null)),
+            el('td', null, String(r.kills)), el('td', null, String(r.deaths)), el('td', null, String(r.dmg)), el('td', null, String(Math.max(0, r.lives))))))),
+      el('div', { class: 'row', style: 'justify-content:center;margin-top:20px' },
+        this.role === 'solo' ? el('button', { class: 'btn primary big', onclick: () => this.startSolo() }, 'Rematch ▸') : null,
+        el('button', { class: 'btn', onclick: () => { this.match = null; this.showHub(); } }, 'Back to the hub'))));
+  }
+
+  // ================================================================ help, settings
   private showHelp() {
-    uiSnd();
-    this.setMode('menu');
-    const step = (n: string, acc: string, title: string, text: string, icon: string) =>
-      el('div', { class: 'panel step', style: `--acc:${acc}` },
-        el('div', { class: 'row' }, el('div', { class: 'num' }, n), el('span', { html: iconSvg(icon, acc, 30) })),
-        el('h3', null, title), el('p', null, text));
+    this.screen = 'help';
+    const step = (n: string, t: string, d: string, acc: string) => el('div', { class: 'panel step', style: `--acc:${acc}` }, el('div', { class: 'num' }, n), el('h3', null, t), el('p', null, d));
     this.show('solid', el('div', { class: 'wrap screen-in' },
       el('div', { class: 'kicker' }, 'Field manual'),
       el('h1', null, 'How to play'),
-      el('div', { class: 'steps', style: 'margin-top:22px' },
-        step('01', '#00f0ff', 'Drive', 'Touch anywhere and drag. Charles steers the truck toward your thumb. Let go to coast. That is the only control.', 'wheel'),
-        step('02', '#ffd166', 'Aim by building', 'Every tool fires on its own, but only inside its arc. A nailgun facing backwards covers your retreat. The barrel on a block shows where it fires.', 'cannon'),
-        step('03', '#5dff8a', 'Collect', 'Kills drop experience (cyan) and parts (diamonds). Park on a supply crystal for 2 seconds to salvage it.', 'magnet'),
-        step('04', '#f5ff3b', 'Level up', 'Each level offers three cards: a new block to bolt on, an upgrade, or a perk. New blocks snap onto any free slot next to your machine.', 'battery'),
-        step('05', '#ff2bd6', 'Stay connected', 'Blocks that lose their link to the cab fall off. Steel plates take 40% of hits on their neighbours. Battery packs feed arc welders and laser cutters; nailguns side by side fire faster.', 'armor'),
-        step('06', '#ff2e63', 'Kill the apex', 'Survive 5:00, then destroy the apex to keep all loot. Dying keeps half. Afterwards the sector breeds its best machines and toughens up against your favourite tool.', 'tesla')),
-      el('h2', null, 'Between runs'),
-      el('p', { class: 'sub' }, 'In the garage, fabricate permanent blocks and arrange them on the grid. Workshop upgrades make every block of a type stronger. The Junkyard is rich in scrap metal, Cold Storage in lens glass, the Foundry in propane.'),
-      el('div', { class: 'row', style: 'margin-top:12px' }, el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back'))));
+      el('div', { class: 'steps', style: 'margin-top:18px' },
+        step('1', 'Program cards, live', 'Move 1/2/3, Back up, Turn left/right and U-turn. Play any card that is cool; bigger moves cool down longer. Keys: W/↑, 2, 3, S/↓, A/←, D/→, X.', 'var(--cyan)'),
+        step('2', 'The factory runs in registers', `Every ${R.match.tick} s: blue belts move 2, green belts 1, push panels shove (on the registers printed on them), gears turn you, board lasers fire, then every robot fires its laser forward. Energy cubes and repair wrenches pay out.`, 'var(--acid)'),
+        step('3', 'Watch your step', 'Pits and the edge of the floor cost a life. Walls and crates stop movement and lasers. You can push other robots, into pits too.', 'var(--red)'),
+        step('4', 'Upgrades', 'Energy buys cards from the Robo Rally deck: Rear Laser, Double Barrel, Rail Gun, Deflector Shield, Mirror Plating, Hover, and actives (Q/E/R): Rocket, EMP, Teleport, Overload, Kamikaze, Reverse Gear. The heavier the weapon, the longer its cooldown.', 'var(--mag)'),
+        step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the ${fmtTime(R.match.timeLimit)} clock runs out. A kill pays ${R.match.killEnergy} energy.`, 'var(--green)')),
+      el('div', { class: 'row', style: 'margin-top:20px' }, el('button', { class: 'btn', onclick: () => this.showHub() }, '◂ Back'))));
   }
 
-  // ================================================================ settings
-  private showSettings(msgText?: string) {
-    this.setMode('menu');
-    const s = this.save;
+  private showSettings() {
+    this.screen = 'settings';
+    const s = this.save.settings;
     const toggle = (label: string, desc: string, on: boolean, flip: () => void) =>
       el('button', { class: 'toggle', onclick: () => { flip(); this.store(); uiSnd(); this.showSettings(); } },
         el('div', { class: 'tl' }, label, el('div', null, desc)), el('span', { class: 'switch' + (on ? ' on' : '') }));
-    const ta = el('textarea', { 'aria-label': 'Save code', spellcheck: 'false' });
-    ta.value = exportCode(s);
-    const msg = el('p', { class: 'sub' }, msgText || 'Copy this code somewhere safe (Notes works). Paste a code and tap Load to restore it. Codes from the prototype work too.');
     this.show('solid', el('div', { class: 'wrap screen-in', style: 'max-width:760px' },
       el('div', { class: 'kicker' }, 'System'),
       el('h1', null, 'Settings'),
       el('div', { class: 'panel', style: 'margin-top:18px;padding-top:4px;padding-bottom:4px' },
-        toggle('Sound', 'Synth effects. Starts after your first touch.', !s.muted, () => { s.muted = !s.muted; setMuted(s.muted); }),
-        toggle('Music', '"Shop Floor Fever": 8-bit arcade techno, generated live. Gets busier when they swarm you.', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
-        toggle('Damage numbers', 'Floating numbers when you hit enemies.', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; }),
-        toggle('Firing arcs', 'Show where each tool fires at the start of a run.', this.settings.arcs, () => { this.settings.arcs = !this.settings.arcs; }),
-        toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.settings.bloom, () => { this.settings.bloom = !this.settings.bloom; }),
-        toggle('Screen shake', 'Shake the camera on hits and explosions.', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
-      el('h2', null, 'Back up your save'),
-      msg, ta,
-      el('div', { class: 'row', style: 'margin-top:12px' },
-        el('button', { class: 'btn', onclick: () => {
-          ta.select();
-          navigator.clipboard?.writeText(ta.value).then(() => { msg.textContent = 'Copied to the clipboard.'; }, () => { msg.textContent = 'Select the text and copy it manually.'; });
-        } }, 'Copy code'),
-        el('button', { class: 'btn', onclick: () => {
-          try { this.save = importCode(ta.value); setMuted(this.save.muted); this.store(); this.showSettings('Save loaded. Welcome back.'); }
-          catch (e) { msg.textContent = 'That code could not be loaded: ' + (e as Error).message + '.'; }
-        } }, 'Load code'),
-        el('button', { class: 'btn danger', onclick: () => {
-          if (confirm('Start over? This deletes your progress on this device.')) { this.save = defaultSave(); this.store(); this.showHub(); }
-        } }, 'Start over')),
-      el('h2', null, 'Install on iPad'),
-      el('p', { class: 'sub' }, 'Open this page in Safari, tap Share, then "Add to Home Screen". The game then starts full screen from its own icon and works offline. Installed apps also keep their save more reliably.'),
-      el('div', { class: 'row', style: 'margin-top:12px' }, el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back'))));
-  }
-
-  // ================================================================ garage
-  private garageMaxW() {
-    const vw = this.renderer.vw;
-    return vw >= 820 ? Math.min(vw, 1100) * 0.52 - 40 : Math.min(vw - 40, 600);
-  }
-
-  private garageTap(x: number, y: number, b: GridItem | null) {
-    const s = this.save, list = s.build;
-    const cell = b as BuildCell | null;
-    if (this.gTool && !cell) {
-      if ((s.inv[this.gTool] || 0) > 0 && validCells(list, s.gridR).some(c => c[0] === x && c[1] === y)) {
-        const nb = { x, y, t: this.gTool, r: 0 };
-        list.push(nb);
-        s.inv[this.gTool]--;
-        if (s.inv[this.gTool] <= 0) { delete s.inv[this.gTool]; this.gTool = null; }
-        this.gFresh = nb; this.gSel = nb;
-        snd(600, 0.1, 'triangle', 0.035);
-        this.store();
-      }
-    } else if (cell) {
-      if (this.gSel === cell && B[cell.t].dir) { cell.r = (cell.r + 1) % 4; snd(420, 0.06, 'triangle', 0.02); this.store(); }
-      else { this.gSel = cell; this.gTool = null; uiSnd(440); }
-    } else {
-      this.gSel = null;
-    }
-    this.award('garage');
-    this.showGarage(true);
-  }
-
-  private storeSelected() {
-    const s = this.save, b = this.gSel;
-    if (!b || isCab(b.t)) return;
-    const removed = removeFromBuild(s.build, b);
-    s.inv[b.t] = (s.inv[b.t] || 0) + 1;
-    for (const o of removed) s.inv[o.t] = (s.inv[o.t] || 0) + 1;
-    if (removed.length) this.toast(removed.length + ' disconnected block' + (removed.length > 1 ? 's' : '') + ' returned to storage', 1800);
-    this.gSel = null;
-    this.store();
-    this.award('garage');
-    this.showGarage(true);
-  }
-
-  showGarage(keepScroll = false) {
-    this.run = null;
-    this.setMode('garage');
-    const s = this.save;
-    const st = keepScroll ? this.ui.scrollTop : 0;
-    if (this.gSel && !s.build.includes(this.gSel)) this.gSel = null;
-    const valid = this.gTool && (s.inv[this.gTool] || 0) > 0 ? validCells(s.build, s.gridR) : [];
-    const fresh = this.gFresh; this.gFresh = null;
-    const invKeys = PLACEABLE.filter(t => (s.inv[t] || 0) > 0);
-
-    const v = makeVehicle(s.build, s.up);
-    const vs = compileVehicle(v, freshMods(), s.up);
-    const hpTot = v.list.reduce((a, b) => a + b.max, 0);
-
-    const tools = el('div', { class: 'tools' },
-      invKeys.length ? invKeys.map(t => el('button', {
-        class: 'tool' + (this.gTool === t ? ' sel' : ''),
-        onclick: () => { this.gTool = this.gTool === t ? null : t; this.gSel = null; uiSnd(); this.showGarage(true); },
-      }, this.blockIcon(t, 26), B[t].name + (tierMark(t) ? ' ' + tierMark(t) : ''), el('span', { class: 'cnt' }, '×' + s.inv[t]))) : null);
-
-    let hint: Node;
-    if (this.gTool) hint = el('span', null, 'Tap a glowing slot to place the ', el('b', null, B[this.gTool].name), '.');
-    else if (this.gSel) hint = el('span', null, B[this.gSel.t].dir ? 'Tap it again to turn it.' : 'Selected.');
-    else hint = el('span', null, invKeys.length ? 'Pick a block from storage below, then tap a slot. Tap a block on the grid to inspect or turn it.' : 'Tap a block to inspect or turn it. Fabricate more blocks on the right.');
-
-    const sel = this.gSel;
-    const inspector = sel ? el('div', { class: 'inspector' },
-      this.blockIcon(sel.t, 34, B[sel.t].dir ? sel.r * 90 : 0),
-      el('div', { class: 'nm' }, B[sel.t].name + (this.up(sel.t) ? ' Mk ' + roman(this.up(sel.t) + 1) : ''), el('div', null, B[sel.t].desc)),
-      B[sel.t].dir ? el('button', { class: 'btn sm', onclick: () => { sel.r = (sel.r + 1) % 4; this.store(); this.showGarage(true); } }, '⟳ Turn') : null,
-      !isCab(sel.t) ? el('button', { class: 'btn sm ghost', onclick: () => this.storeSelected() }, 'Store') : null) : null;
-
-    const meter = (label: string, val: string, frac: number, bad = false) =>
-      el('div', { class: 'meter' + (bad ? ' bad' : '') }, el('div', { class: 'ml' }, label, el('b', null, val)), el('div', { class: 'mt' }, el('div', { class: 'mf', style: `width:${clamp(frac, 0.02, 1) * 100}%` })));
-    const warn: string[] = [];
-    if (!vs.thrust) warn.push('No propulsion: add wheels, tracks or hover pads.');
-    if (vs.powerFactor < 1) warn.push(`Power overload: tools fire at ${Math.round(vs.powerFactor * 100)}%. Add batteries.`);
-    if (!vs.weapons.length) warn.push('No tools mounted.');
-    const stats = el('div', null,
-      el('div', { class: 'meters' },
-        meter('TOP SPEED', String(Math.round(vs.speed)), vs.speed / 290),
-        meter('POWER', vs.power + ' / ' + vs.demand, vs.demand ? vs.power / Math.max(vs.power, vs.demand) : 1, vs.powerFactor < 1),
-        meter('HULL HP', String(hpTot), hpTot / 1500),
-        meter('PICKUP RANGE', String(vs.magnet), vs.magnet / 400)),
-      warn.map(w => el('div', { class: 'warn' }, w)));
-
-    this.preview ||= new Preview3D();
-    const pw = Math.max(240, Math.min(this.garageMaxW() - 36, 560));
-    this.preview.setAvatar(this.profile.avatar);
-    this.preview.render(s.build, pw, Math.round(pw * 0.62));
-    const preview = el('div', { class: 'preview' }, this.preview.canvas,
-      el('p', null, 'Tool coverage. Each cone shows where a tool can hit; rings are 360° tools. Gaps are where enemies reach you unopposed. Tap a tool twice to turn it.'));
-
-    // right column
-    const exp = T.gridExpansions.find(g => g.r === s.gridR + 1);
-    const cabT = s.build.find(b => b.x === 0 && b.y === 0)?.t || 'cab';
-    const owned = [cabT].concat(PLACEABLE.filter(t => s.build.some(b => b.t === t) || (s.inv[t] || 0) > 0));
-    const nextCab = CABS.find(c => B[c].unlock?.from === cabT);
-    const workshop = el('div', { class: 'craft' },
-      el('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Permanent. Applies to every block of that type, in every run.'),
-      owned.map(t => {
-        const L = this.up(t), max = L >= T.workshopMax, cost = max ? null : upCost(t, L);
-        return el('div', { class: 'crow' },
-          el('span', { class: 'sw', style: `--bc:${B[t].color}`, html: iconSvg(t, B[t].color, 24) }),
-          el('div', { class: 'nm' }, B[t].name, el('span', { class: 'mk' }, 'MK ' + roman(L + 1)),
-            el('div', { class: 'd' }, max ? 'Fully upgraded.' : upEffect(t) + '.'), cost ? this.costChips(cost) : null),
-          max ? null : el('button', { class: 'btn sm', disabled: !this.canAfford(cost!), onclick: () => {
-            this.pay(cost!); s.up[t] = L + 1; this.store(); snd(660, 0.15, 'triangle', 0.035);
-            this.toast(B[t].name + ' upgraded to Mk ' + roman(L + 2), 1400); this.award('garage'); this.showGarage(true);
-          } }, 'Upgrade'));
-      }),
-      // cab chassis: swap the centre block for the next tier
-      nextCab ? (() => {
-        const ok = isUnlocked(nextCab, s.up), cost = B[nextCab].cost || {};
-        return el('div', { class: 'crow' + (ok ? '' : ' locked'), style: 'border-color:var(--acid)' },
-          el('span', { class: 'sw', style: `--bc:${B[nextCab].color}`, html: iconSvg(nextCab, B[nextCab].color, 24) }),
-          el('div', { class: 'nm' }, 'New chassis: ' + B[nextCab].name, el('span', { class: 'tierb' }, 'TIER ' + tierMark(nextCab)),
-            el('div', { class: 'd' }, ok ? B[nextCab].desc + ` ${B[nextCab].hp} HP, +${B[nextCab].power} power.` : `Unlocks at ${B[B[nextCab].unlock!.from].name} Mk ${roman(B[nextCab].unlock!.mk + 1)}.`),
-            ok ? this.costChips(cost) : null),
-          el('button', { class: 'btn sm', disabled: !ok || !this.canAfford(cost), onclick: () => {
-            this.pay(cost);
-            const c = s.build.find(b => b.x === 0 && b.y === 0);
-            if (c) c.t = nextCab;
-            this.store(); snd(520, 0.3, 'triangle', 0.05); this.award('garage');
-            this.toast('Charles moved into the ' + B[nextCab].name + '!', 2200); this.showGarage(true);
-          } }, ok ? 'Swap cab' : 'Locked'));
-      })() : null);
-    const craft = el('div', { class: 'craft' },
-      el('p', { class: 'sub', style: 'margin:0 0 4px' }, 'Fabricated blocks go to storage. Place them on the grid on the left.'),
-      exp ? el('div', { class: 'crow', style: 'border-color:var(--acid)' },
-        el('span', { class: 'sw', style: '--bc:#f5ff3b;font-family:var(--display);color:var(--acid)' }, (exp.r * 2 + 1) + '²'),
-        el('div', { class: 'nm' }, 'Bigger build grid', el('div', { class: 'd' }, `Expand to ${exp.r * 2 + 1}×${exp.r * 2 + 1}. In a run you can always build one ring further.`), this.costChips(exp.cost)),
-        el('button', { class: 'btn sm', disabled: !this.canAfford(exp.cost), onclick: () => { this.pay(exp.cost); s.gridR = exp.r; this.store(); snd(700, 0.2, 'triangle', 0.04); this.showGarage(true); } }, 'Expand')) : null,
-      PLACEABLE.map(t => {
-        const ok = isUnlocked(t, s.up), u = B[t].unlock;
-        // locked tiers only show once their family is in reach (tier II always, tier III once tier II is unlocked)
-        if (!ok && u && !isUnlocked(u.from, s.up)) return null;
-        return el('div', { class: 'crow' + (ok ? '' : ' locked') + (B[t].tier > 1 ? ' tiered' : '') },
-        el('span', { class: 'sw', style: `--bc:${B[t].color}`, html: iconSvg(t, B[t].color, 24) }),
-        el('div', { class: 'nm' }, B[t].name, B[t].tier > 1 ? el('span', { class: 'tierb' }, 'TIER ' + tierMark(t)) : null, s.inv[t] ? el('span', { class: 'stored' }, s.inv[t] + ' STORED') : null,
-          el('div', { class: 'd' }, ok ? B[t].desc : `Unlocks at ${B[u!.from].name} Mk ${roman(u!.mk + 1)} (workshop upgrades).`), ok ? this.costChips(B[t].cost || {}) : null),
-        el('button', { class: 'btn sm', disabled: !ok || !this.canAfford(B[t].cost || {}), onclick: () => {
-          this.pay(B[t].cost || {}); s.inv[t] = (s.inv[t] || 0) + 1; this.gTool = t; this.gSel = null; this.store(); snd(520, 0.1, 'triangle', 0.03); this.award('craft:' + t);
-          this.toast(B[t].name + ' fabricated. Tap a glowing slot to place it.', 1800); this.showGarage(true);
-        } }, ok ? 'Fabricate' : 'Locked'));
-      }));
-
-    const tab = (id: 'workshop' | 'craft', label: string) => el('button', { class: 'tab' + (this.gTab === id ? ' on' : ''), onclick: () => { this.gTab = id; uiSnd(); this.showGarage(true); } }, label);
-
-    this.show('solid', el('div', { class: 'wrap' + (keepScroll ? '' : ' screen-in') },
-      el('div', { class: 'row' },
-        el('div', null, el('div', { class: 'kicker' }, 'Workshop'), el('h1', null, 'Garage')),
-        el('div', { class: 'spacer' }),
-        el('button', { class: 'btn primary', onclick: () => { this.gSel = null; this.gTool = null; this.showHub(); } }, 'Done')),
-      this.resChips(s.res),
-      el('div', { class: 'garage' },
-        el('div', { class: 'panel' },
-          this.gridView(s.build, s.gridR, { valid, fresh, sel: this.gSel, maxW: this.garageMaxW(), onTap: (x, y, b) => this.garageTap(x, y, b) }),
-          el('p', { class: 'hint' }, hint),
-          inspector,
-          invKeys.length ? el('h2', { style: 'margin-top:16px' }, 'Storage') : null,
-          tools, stats, preview),
-        el('div', { class: 'panel' },
-          el('div', { class: 'tabs' }, tab('workshop', 'Upgrades'), tab('craft', 'Fabricate')),
-          this.gTab === 'workshop' ? workshop : craft))));
-    if (keepScroll) this.ui.scrollTop = st;
-  }
-
-  // ================================================================ cards
-  private showCards() {
-    const run = this.run!;
-    this.setMode('cards');
-    const cards = run.makeCards();
-    const icon = (c: Card) => {
-      if (c.kind === 'block' || c.kind === 'up') return iconSvg(c.t, B[c.t].color, 32);
-      if (c.kind === 'repair') return iconSvg('repair', '#5dff8a', 32);
-      return `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ff2bd6" stroke-width="2" stroke-linejoin="round"><path d="${PERK_ICON}"/></svg>`;
-    };
-    this.show('dim', el('div', { class: 'wrap mid' },
-      el('div', { class: 'center' }, el('div', { class: 'kicker' }, 'Choose one upgrade'), el('div', { class: 'lvl-title' }, 'LEVEL ' + run.level)),
-      el('div', { class: 'cards' }, cards.map(c => el('button', { class: 'card k-' + c.kind, onclick: () => this.pickCard(c) },
-        el('div', { class: 'cico', html: icon(c) }),
-        el('div', { class: 'kind' }, c.label), el('div', { class: 'ttl' }, c.title), el('div', { class: 'dsc' }, c.desc),
-        c.kind === 'block' ? el('div', { class: 'foot' }, 'BOLTED ON FOR THIS RUN') : null))),
-      el('div', { class: 'row', style: 'justify-content:center;margin-top:18px' },
-        el('button', { class: 'btn ghost', disabled: run.reroll <= 0, onclick: () => { run.reroll--; uiSnd(); this.award('reroll'); this.showCards(); } }, 'Reroll · ' + run.reroll + ' left'))));
-    snd(740, 0.18, 'triangle', 0.04);
-  }
-
-  private pickCard(c: Card) {
-    const run = this.run!;
-    uiSnd(620);
-    if (c.kind === 'block') { this.showPlacement(c.t, null); return; }
-    run.applyCard(c);
-    this.afterCard();
-  }
-
-  private afterCard() {
-    const run = this.run!;
-    run.consumeLevel();
-    if (run.pendingLevels > 0) this.showCards();
-    else this.resume();
-  }
-
-  private showPlacement(t: string, fresh: Block | null) {
-    const run = this.run!;
-    this.setMode('place');
-    const rlim = this.save.gridR + 1;
-    const valid = fresh ? [] : run.placementCells();
-    const onTap = (x: number, y: number, b: GridItem | null) => {
-      if (!fresh && !b && valid.some(c => c[0] === x && c[1] === y)) {
-        const nb = run.placeBlock(x, y, t);
-        snd(600, 0.12, 'triangle', 0.04);
-        this.showPlacement(t, nb);
-      } else if (b && B[b.t].dir) {
-        run.rotateBlock(b as Block);
-        snd(420, 0.06, 'triangle', 0.02);
-        this.showPlacement(t, fresh);
-      }
-    };
-    const maxW = Math.min(this.renderer.vw - 40, 620, (this.renderer.vh - 260) * 1.0);
-    this.show('dim', el('div', { class: 'wrap mid', style: 'max-width:700px' },
-      el('div', { class: 'center' }, el('div', { class: 'kicker' }, fresh ? 'Bolted on' : 'New block'),
-        el('div', { class: 'lvl-title', style: 'font-size:clamp(24px,4vw,34px)' }, fresh ? B[t].name + ' placed' : 'Place your ' + B[t].name)),
-      el('p', { class: 'hint', style: 'margin:8px 0 14px' }, fresh
-        ? (B[t].dir ? 'Tap any tool to turn it. The arrow shows where it fires.' : 'Tap any tool to turn it, or continue.')
-        : 'Tap a glowing slot next to your machine.'),
-      this.gridView(run.V.list, rlim, { valid, fresh, maxW: Math.max(260, maxW), onTap }),
-      el('div', { class: 'row', style: 'justify-content:center;margin-top:18px' },
-        fresh ? el('button', { class: 'btn primary big', onclick: () => this.afterCard() }, 'Continue ▸')
-          : el('button', { class: 'btn ghost', onclick: () => this.afterCard() }, 'Skip this block'))));
-  }
-
-  // ================================================================ pause
-  private showPause() {
-    const run = this.run;
-    if (this.mode !== 'run' || !run) return;
-    if (!this.pauseAt) this.pauseAt = performance.now();
-    this.setMode('pause');
-    const toggleBtn = (label: string, on: boolean, flip: () => void) =>
-      el('button', { class: 'btn sm ghost', onclick: () => { flip(); this.store(); this.setMode('run'); this.showPause(); } }, label + ': ' + (on ? 'on' : 'off'));
-    const co = this.coop;
-    this.show('dim', el('div', { class: 'wrap mid', style: 'max-width:760px' },
-      el('div', { class: 'center' },
-        el('div', { class: 'kicker' }, run.Wd.name + (co ? ' · co-op shift' : '')),
-        el('div', { class: 'lvl-title', style: 'color:var(--cyan);text-shadow:0 0 22px rgba(0,240,255,.6)' }, co ? 'BREAK' : 'PAUSED'),
-        co ? el('p', { class: 'sub', style: 'margin:8px auto 0' }, 'The shift keeps running for your crew. Your truck stands still while you are on break.') : null,
-        el('p', { class: 'sub', style: 'margin:8px auto 18px' }, fmtTime(run.t) + ' survived · level ' + run.level + ' · ' + run.kills + ' kills')),
-      el('div', { class: 'row', style: 'justify-content:center' },
-        el('button', { class: 'btn primary big', onclick: () => this.resume() }, 'Resume'),
-        co ? el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); this.leaveCoop(); } }, co.role === 'host' ? 'End shift for everyone' : 'Leave the shift')
-          : el('button', { class: 'btn danger', onclick: () => { this.pauseAt = 0; this.award('abandon'); run.end(false); this.setMode('run'); this.ui.className = 'hidden'; } }, run.exhibition ? 'Abandon challenge' : 'Abandon (keep half)')),
-      el('div', { class: 'row', style: 'justify-content:center;margin-top:12px' },
-        toggleBtn('Sound', !this.save.muted, () => { this.save.muted = !this.save.muted; setMuted(this.save.muted); }),
-        toggleBtn('Music', this.settings.music, () => { this.settings.music = !this.settings.music; music.setEnabled(this.settings.music); }),
-        toggleBtn('Damage numbers', this.settings.dmgNumbers, () => { this.settings.dmgNumbers = !this.settings.dmgNumbers; run.dmgNumbers = this.settings.dmgNumbers; }),
-        toggleBtn('Shake', this.settings.shake, () => { this.settings.shake = !this.settings.shake; })),
-      co && co.role === 'client' ? null : el('h2', null, 'Damage so far'),
-      co && co.role === 'client' ? null : damageReport(run.dmgBy, run.killsSrc, run.peak, run.t)));
-  }
-
-  // ================================================================ debrief
-  private finishRun(r: RunResult) {
-    const p = this.profile;
-    const ch = this.activeChallenge;
-    const co = this.coop;
-    if (co) {
-      if (co.role === 'host' && this.run) this.crew.send({ k: 'coop_end', results: this.run.results });
-      if (co.role === 'client') {
-        // the host's sector evolved; we bank our share of the loot
-        for (const k in r.gained) this.save.res[k as ResKey] += r.gained[k as ResKey] || 0;
-        this.save.runs++;
-        if (r.won) this.save.wins++;
-      }
-      this.coop = null;
-    }
-    accumulate(p, r);
-    const improved = applyRun(p, r, !!ch);
-    let score = 0;
-    if (ch) {
-      score = challengeScore(r);
-      const entry = { pid: p.id, name: p.name, score, t: r.t, kills: r.kills, won: r.won, at: Date.now() };
-      const local = p.challenges.find(c => c.id === ch.id) || ch;
-      addChallengeEntry(local, entry);
-      this.crew.send({ k: 'entry', cid: ch.id, e: entry });
-      if (local.entries.some(e => e.pid !== p.id && e.score < score)) this.award('beat_mate');
-    }
-    const unlocked = this.award(undefined, r, !!ch);
-    const sector = WORLDS[r.wk].name;
-    this.crew.send({ k: 'news', from: p.id, text: ch
-      ? `${p.name} scored ${score.toLocaleString('en')} in the ${sector} challenge`
-      : r.won ? `${p.name} just destroyed the apex in the ${sector}!` : `${p.name} got wrecked in the ${sector} after ${fmtTime(r.t)}` });
-    this.store();
-    this.showDebrief(r, improved, unlocked, ch, score);
-  }
-
-  private showDebrief(r: RunResult, improved: RecordDef[] = [], unlocked: TrophyDef[] = [], ch: Challenge | null = null, score = 0) {
-    this.setMode('debrief');
-    const keys = Object.keys(r.gained);
-    const Wd = WORLDS[r.wk];
-    const big = (v: string, l: string, c?: string) => el('div', { class: 'bigstat' }, el('div', { class: 'v', style: c ? `color:${c}` : '' }, v), el('div', { class: 'l' }, l));
-    const board = ch ? (this.profile.challenges.find(c => c.id === ch.id) || ch) : null;
-    this.show('solid', el('div', { class: 'wrap screen-in' },
-      el('div', { class: 'kicker', style: `color:${Wd.theme.accent}` }, Wd.name + (ch ? ' · challenge result' : ' · debrief')),
-      el('h1', { style: `color:${r.won ? 'var(--acid)' : 'var(--red)'};text-shadow:0 0 26px ${r.won ? 'rgba(245,255,59,.5)' : 'rgba(255,46,99,.5)'}` }, r.won ? 'APEX DESTROYED' : 'TRUCK WRECKED'),
-      el('p', { class: 'sub', style: 'margin-top:10px' }, ch ? 'Challenge runs use the stock truck and bank nothing. Only the score counts.' : r.won ? 'All loot kept. The world grows one tier stronger.' : 'Half of the loot was salvaged.'),
-      el('div', { class: 'bigstats' },
-        ch ? big(score.toLocaleString('en'), 'CHALLENGE SCORE', 'var(--acid)') : null,
-        big(fmtTime(r.t), 'SURVIVED'), big(String(r.level), 'LEVEL'), big(String(r.kills), 'KILLS'),
-        big(Math.round(r.taken).toLocaleString('en'), 'DAMAGE TAKEN', 'var(--red)'),
-        r.newSpecies ? big('+' + r.newSpecies, 'NEW SPECIES', 'var(--mag)') : null),
-      board ? el('h2', null, 'Challenge leaderboard') : null,
-      board ? this.challengeTable(board) : null,
-      unlocked.length ? el('h2', null, 'Trophies unlocked') : null,
-      unlocked.length ? el('div', { class: 'trophies' }, unlocked.map(t => this.trophyCard(t, true))) : null,
-      improved.length ? el('h2', null, 'New personal records') : null,
-      improved.length ? el('div', { class: 'log terminal' }, improved.map((d, i) => el('div', { style: `animation-delay:${0.1 + i * 0.1}s` },
-        el('b', null, d.label + ': ' + fmtRecord(d, this.profile.best[d.id])), ' · title: "' + d.title + '"'))) : null,
-      ch ? null : el('h2', null, 'Loot banked'),
-      ch ? null : keys.length ? this.resChips(r.gained, true) : el('p', { class: 'sub' }, 'Nothing salvaged this time.'),
-      el('h2', null, 'Damage report'),
-      damageReport(r.dmg, r.ks, r.peak, r.t),
-      ch ? null : el('h2', null, 'How ' + Wd.name + ' evolved'),
-      ch ? null : el('div', { class: 'log terminal' }, r.report.length ? r.report.map((l, i) => el('div', { style: `animation-delay:${0.15 + i * 0.12}s` }, l)) : el('div', null, 'No changes.')),
-      el('div', { class: 'row', style: 'margin-top:22px' },
-        ch ? el('button', { class: 'btn primary big', onclick: () => this.startRun(ch.wk, ch) }, 'Try again') : el('button', { class: 'btn primary big', onclick: () => { this.gSel = null; this.gTool = null; this.showGarage(); } }, 'Garage'),
-        ch ? el('button', { class: 'btn big', onclick: () => this.showCrew() }, 'Crew & records') : el('button', { class: 'btn big', onclick: () => this.startRun(r.wk) }, 'Run again'),
-        el('button', { class: 'btn ghost', onclick: () => this.showHub() }, 'Sector map'))));
-  }
-
-  // ================================================================ trophies & records
-  private get profile(): Profile { return this.save.profile!; }
-  private trophyCount() { return Object.keys(this.profile.trophies).length; }
-
-  /** Check trophies; queue toasts for new ones; share the new profile with the crew. */
-  private award(event?: string, r?: RunResult, challenge = false): TrophyDef[] {
-    const got = evaluate({ save: this.save, p: this.profile, r, challenge, event, now: new Date() });
-    if (got.length || r) {
-      this.store();
-      this.crew.send({ k: 'profile', p: publicProfile(this.profile) });
-    }
-    for (const t of got) this.trophyQueue.push(t);
-    this.pumpTrophies();
-    return got;
-  }
-
-  private trophyTimer = 0;
-  /** Trophy pop-up: bottom of the screen, tap to dismiss, several unlocks at once share one pop-up. */
-  private pumpTrophies() {
-    if (this.trophyShowing || !this.trophyQueue.length) return;
-    const batch = this.trophyQueue.splice(0, this.trophyQueue.length > 2 ? this.trophyQueue.length : 1);
-    const t = batch.reduce((best, x) => (TIER_ORDER.indexOf(x.tier) < TIER_ORDER.indexOf(best.tier) ? x : best), batch[0]);
-    this.trophyShowing = true;
-    const box = $('trophy');
-    box.className = 'trophy-toast on tier-' + t.tier;
-    box.replaceChildren(el('div', { class: 'tt-cup', html: CUP }), el('div', null,
-      el('div', { class: 'tt-kind' }, batch.length > 1 ? batch.length + ' trophies unlocked' : (t.hidden ? 'Easter egg · ' : '') + t.tier + ' trophy unlocked'),
-      el('div', { class: 'tt-title' }, batch.map(x => x.title).join(' · '))));
-    jingle(t.tier);
-    clearTimeout(this.trophyTimer);
-    this.trophyTimer = window.setTimeout(() => this.dismissTrophy(), batch.length > 1 ? 4200 : 3000);
-  }
-
-  private dismissTrophy() {
-    clearTimeout(this.trophyTimer);
-    $('trophy').classList.remove('on');
-    setTimeout(() => { this.trophyShowing = false; this.pumpTrophies(); }, 350);
-  }
-
-  private egg(kind: 'slash' | 'tap_charles') {
-    const e = this.profile.eggs;
-    e[kind] = (e[kind] || 0) + 1;
-    this.award(kind);
-    this.store();
-  }
-
-  private tapCharles(img: HTMLElement) {
-    const n = (this.profile.eggs.tap_charles || 0) % CHARLES_SAYS.length;
-    this.toast(avatarOf(this.profile.avatar).name + ': "' + CHARLES_SAYS[n] + '"', 2600);
-    img.classList.remove('boing'); void img.offsetWidth; img.classList.add('boing');
-    snd(300 + Math.random() * 200, 0.12, 'square', 0.03);
-    this.egg('tap_charles');
-  }
-
-  private trophyCard(t: TrophyDef, fresh = false) {
-    const got = this.profile.trophies[t.id];
-    const secret = t.hidden && !got;
-    return el('div', { class: 'trophy tier-' + t.tier + (got ? ' got' : ' locked') + (fresh ? ' fresh' : '') },
-      el('div', { class: 'tcup', html: CUP }),
-      el('div', { class: 'tbody' },
-        el('div', { class: 'tkind' }, (t.hidden ? 'Easter egg · ' : '') + t.tier),
-        el('div', { class: 'ttitle' }, secret ? '???' : t.title),
-        el('div', { class: 'tdesc' }, secret ? 'A hidden trophy. Keep poking around.' : t.desc),
-        got ? el('div', { class: 'tdate' }, 'Unlocked ' + new Date(got).toLocaleDateString()) : null));
-  }
-
-  private showTrophies() {
-    uiSnd();
-    this.setMode('menu');
-    this.screen = 'trophies';
-    const has = (t: TrophyDef) => (this.profile.trophies[t.id] ? 0 : 1);
-    const sorted = [...TROPHIES].sort((a, b) => has(a) - has(b) || Number(!!a.hidden) - Number(!!b.hidden) || TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier));
-    const count = (tier: string) => TROPHIES.filter(t => t.tier === tier && this.profile.trophies[t.id]).length + '/' + TROPHIES.filter(t => t.tier === tier).length;
-    const got = this.trophyCount();
-    this.show('solid', el('div', { class: 'wrap screen-in' },
-      el('div', { class: 'row' },
-        el('div', null, el('div', { class: 'kicker' }, 'Trophy cabinet'), el('h1', null, 'Trophies')),
-        el('div', { class: 'spacer' }),
-        el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back')),
-      el('div', { class: 'tprog' }, el('div', { class: 'tprog-bar' }, el('i', { style: `width:${(got / TROPHIES.length) * 100}%` })),
-        el('div', { class: 'statline', style: 'margin-top:10px' },
-          el('span', { class: 'stat' }, 'TOTAL ', el('b', null, got + '/' + TROPHIES.length)),
-          ...(['platinum', 'gold', 'silver', 'bronze'] as const).map(t => el('span', { class: 'stat tier-' + t }, t.toUpperCase() + ' ', el('b', null, count(t)))))),
-      el('div', { class: 'trophies', style: 'margin-top:18px' }, sorted.map(t => this.trophyCard(t)))));
-  }
-
-  private challengeTable(c: Challenge) {
-    if (!c.entries.length) return el('p', { class: 'sub' }, 'No scores yet. Be the first.');
-    return el('div', { class: 'log rep' }, c.entries.map((e, i) => el('div', { class: 'crow-line' + (e.pid === this.profile.id ? ' me' : '') },
-      el('span', { class: 'rank' }, '#' + (i + 1)),
-      el('span', { class: 'nm' }, e.name + (i === 0 ? ' · Top of the League' : i === c.entries.length - 1 && c.entries.length > 2 ? ' · Participation Award' : '')),
-      el('span', { class: 'num' }, el('b', null, e.score.toLocaleString('en')), ' · ' + fmtTime(e.t) + ' · ' + e.kills + ' kills' + (e.won ? ' · apex' : '')))));
-  }
-
-  // ================================================================ crew
-  private onCrewChange() {
-    const online = this.crew.status === 'online';
-    if (online && !this.crewWasOnline) {
-      this.profile.crewCode = this.crew.code;
-      this.award('crew');
-      this.store();
-    }
-    this.crewWasOnline = online;
-    this.rememberMates();
-    this.coopOnCrewChange();
-    this.requestCrewRender();
-  }
-
-  private rememberMates() {
-    const me = this.profile.id;
-    for (const [id, p] of this.crew.members) if (id !== me) this.profile.mates[id] = p;
-  }
-
-  private mergeChallenge(c: Challenge) {
-    const list = this.profile.challenges;
-    const ex = list.find(x => x.id === c.id);
-    if (ex) { for (const e of c.entries || []) addChallengeEntry(ex, e); return false; }
-    list.unshift({ ...c, entries: [...(c.entries || [])] });
-    list.sort((a, b) => b.at - a.at);
-    list.length = Math.min(list.length, 10);
-    return true;
-  }
-
-  private onCrewMsg(m: CrewMsg) {
-    if (this.onCoopMsg(m)) return;
-    const me = this.profile;
-    if (m.k === 'hello' && this.crew.isHost) {
-      // bring the newcomer up to speed on recent challenges
-      for (const c of me.challenges.slice(0, 3)) this.crew.send({ k: 'challenge', c });
-      this.toast(m.p.name + ' clocked in to the crew', 2200);
-    } else if (m.k === 'news') {
-      if (m.from !== me.id) this.toast(m.text, 3000);
-    } else if (m.k === 'challenge') {
-      if (this.mergeChallenge(m.c) && m.c.by !== me.id) this.toast(`${m.c.byName} started a challenge in the ${WORLDS[m.c.wk]?.name || 'sector'}. Open Crew & records to play.`, 3600);
-    } else if (m.k === 'entry') {
-      const c = me.challenges.find(x => x.id === m.cid);
-      if (c) {
-        addChallengeEntry(c, m.e);
-        const mine = c.entries.find(e => e.pid === me.id);
-        if (mine && m.e.pid !== me.id && mine.score > m.e.score) this.award('beat_mate');
-      }
-    }
-    this.rememberMates();
-    this.store();
-    this.requestCrewRender();
-  }
-
-  // ================================================================ co-op
-  /** Re-render the crew screen soon, but never under a finger or while typing. */
-  private requestCrewRender() { if (this.mode === 'menu' && this.screen === 'crew') this.crewDirty = true; }
-  private flushCrewRender() {
-    if (!(this.mode === 'menu' && this.screen === 'crew')) { this.crewDirty = false; return; }
-    const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
-    if (typing || performance.now() - this.uiTouchAt < 700) return;
-    this.crewDirty = false;
-    this.showCrew(true);
-  }
-
-  private mySpec(): PlayerSpec {
-    const s = this.save;
-    return { pid: this.profile.id, name: this.profile.name, avatar: this.profile.avatar, build: s.build.map(b => ({ ...b })), up: { ...s.up }, gridR: s.gridR };
-  }
-
-  private broadcastLobby() {
-    const L = this.lobby;
-    this.crew.send({ k: 'coop_lobby', open: !!L, wk: L?.wk ?? 'rust', host: this.profile.name, hostPid: this.profile.id, members: L ? [this.profile.name, ...L.members.map(m => m.name)] : [] });
-  }
-
-  private openLobby(wk: string) {
-    this.lobby = { wk, members: this.lobby?.members ?? [] };
-    this.broadcastLobby();
-    uiSnd(660);
-    this.toast('Co-op lobby open. Crew-mates can join from their Crew screen.', 2600);
-    this.showCrew(true);
-  }
-
-  private closeLobby() {
-    this.lobby = null;
-    this.broadcastLobby();
-    this.showCrew(true);
-  }
-
-  private startCoopHost() {
-    const L = this.lobby;
-    if (!L) return;
-    const crewSpecs = L.members.filter(m => this.crew.online.has(m.pid)).slice(0, 3).map((m, i) => ({ ...m, color: PLAYER_COLORS[i + 1] }));
-    unlockAudio();
-    this.activeChallenge = null;
-    this.run = new Run(this.save, L.wk, { visual: true, dmgNumbers: this.settings.dmgNumbers, viewW: this.renderer.vw, viewH: this.renderer.vh,
-      pid: this.profile.id, name: this.profile.name, avatar: this.profile.avatar, crew: crewSpecs });
-    this.coop = { role: 'host', offers: new Map(), myCards: null, lastSnap: 0, lastIn: 0 };
-    this.crew.send({ k: 'coop_start', s: startInfo(this.run) });
-    this.lobby = null;
-    this.beginRun(L.wk);
-    this.toast('CO-OP SHIFT · ' + WORLDS[L.wk].name.toUpperCase() + ' · ' + this.run.players.length + ' TRUCKS', 2600);
-  }
-
-  private startCoopClient(st: CoopStart) {
-    unlockAudio();
-    this.activeChallenge = null;
-    const mirror = new Mirror(st, this.profile.id, { w: this.renderer.vw, h: this.renderer.vh });
-    this.run = mirror.run;
-    this.coop = { role: 'client', mirror, offers: new Map(), myCards: null, lastSnap: 0, lastIn: 0 };
-    this.invite = null;
-    this.beginRun(st.wk);
-    this.toast('CO-OP SHIFT · ' + WORLDS[st.wk].name.toUpperCase() + ' · ' + mirror.run.players.length + ' TRUCKS', 2600);
-  }
-
-  /** Shared start of any run: camera, HUD, mode. */
-  private beginRun(wk: string) {
-    const run = this.run!;
-    this.renderer.configureSpawn(run);
-    this.snapshot(run);
-    this.acc = 0; this.levelFlash = -1; this.endTimer = -1; this.trayKey = '';
-    this.setMode('run');
-    this.updateHUD();
-    void wk;
-    if (!this.save.seenHelp) { this.save.seenHelp = true; this.store(); }
-  }
-
-  /** Host, every frame: card offers for remote players and snapshots for everyone. */
-  private hostCoopTick() {
-    const co = this.coop!, run = this.run!;
-    for (const p of run.players) {
-      if (p.idx === 0 || p.gone || p.pendingCards <= 0 || co.offers.has(p.pid)) continue;
-      const cards = run.makeCards(p);
-      co.offers.set(p.pid, cards);
-      this.crew.send({ k: 'cards', pid: p.pid, cards });
-    }
-    if (!co.myCards && run.me.pendingCards > 0) co.myCards = run.makeCards(run.me);
-    const now = performance.now();
-    if (now - co.lastSnap > 1000 / SNAP_HZ) { co.lastSnap = now; this.crew.send({ k: 'snap', buf: encodeSnapshot(run) }); }
-  }
-
-  /** Co-op level-up tray: cards appear at the bottom and the game keeps running. */
-  private updateTray() {
-    const co = this.coop, tray = $('cardtray');
-    const cards = co?.myCards;
-    const show = !!cards && (this.mode === 'run' || this.mode === 'pause') && !this.run?.over;
-    if (!show) { if (this.trayKey) { tray.classList.add('off'); this.trayKey = ''; } return; }
-    const key = cards!.map(c => c.key).join();
-    if (key === this.trayKey) return;
-    this.trayKey = key;
-    tray.classList.remove('off');
-    const icon = (c: Card) => (c.kind === 'block' || c.kind === 'up') ? iconSvg(c.t, B[c.t].color, 26) : c.kind === 'repair' ? iconSvg('repair', '#5dff8a', 26)
-      : `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ff2bd6" stroke-width="2" stroke-linejoin="round"><path d="${PERK_ICON}"/></svg>`;
-    tray.replaceChildren(
-      el('div', { class: 'tray-head' }, 'LEVEL ' + this.run!.level + ' · PICK ONE · THE SHIFT KEEPS RUNNING'),
-      el('div', { class: 'tray-cards' }, cards!.map((c, i) => el('button', { class: 'tcard k-' + c.kind, onclick: (e: Event) => { e.stopPropagation(); this.pickCoopCard(i); } },
-        el('span', { class: 'ti', html: icon(c) }),
-        el('span', { class: 'tt' }, el('b', null, c.title), el('small', null, c.kind === 'block' ? 'Bolted on automatically' : c.desc))))));
-    snd(740, 0.18, 'triangle', 0.04);
-  }
-
-  private pickCoopCard(i: number) {
-    const co = this.coop, run = this.run;
-    if (!co || !run || !co.myCards) return;
-    const c = co.myCards[i];
-    uiSnd(620);
-    if (co.role === 'host') {
-      run.applyCard(c, run.me);
-      run.me.pendingCards = Math.max(0, run.me.pendingCards - 1);
-    } else {
-      this.crew.send({ k: 'pick', pid: this.profile.id, i });
-    }
-    co.myCards = null;
-    this.trayKey = '';
-    $('cardtray').classList.add('off');
-  }
-
-  private leaveCoop() {
-    const co = this.coop, run = this.run;
-    if (!co || !run) return;
-    if (co.role === 'host') {
-      run.end(false); // the normal end-of-run flow tells everyone
-      this.setMode('run');
-      this.ui.className = 'hidden';
-    } else {
-      this.crew.send({ k: 'coop_quit', pid: this.profile.id });
-      this.coop = null;
-      this.run = null;
-      this.toast('You left the co-op shift.', 1800);
-      this.showHub();
-    }
-  }
-
-  private coopOnCrewChange() {
-    const co = this.coop, run = this.run;
-    if (this.lobby) {
-      const before = this.lobby.members.length;
-      this.lobby.members = this.lobby.members.filter(m => this.crew.online.has(m.pid));
-      if (this.lobby.members.length !== before) this.broadcastLobby();
-    }
-    if (!co || !run) { if (this.crew.status !== 'online') { this.lobby = null; this.invite = null; } return; }
-    if (co.role === 'host') {
-      for (const p of run.players) if (p.idx > 0 && !p.gone && !this.crew.online.has(p.pid)) { run.removePlayer(p.pid); co.offers.delete(p.pid); }
-    } else if (this.crew.status !== 'online' && !run.over) {
-      this.coop = null;
-      this.run = null;
-      this.toast('Lost the connection to the co-op host.', 3000);
-      this.showHub();
-    }
-  }
-
-  /** Returns true when the message was a co-op message (handled here, no save write). */
-  private onCoopMsg(m: CrewMsg): boolean {
-    const me = this.profile.id;
-    const co = this.coop;
-    const cm = m as CoopMsg;
-    switch (cm.k) {
-      case 'snap': if (co?.role === 'client' && co.mirror) { co.mirror.apply(cm.buf); co.waitWarned = false; } return true;
-      case 'in': { const p = co?.role === 'host' ? this.run?.playerById(cm.pid) : null; if (p) { p.joy.x = cm.x; p.joy.y = cm.y; } return true; }
-      case 'ev': if (co?.role === 'client' && (!cm.pid || cm.pid === me)) this.toast(cm.msg, cm.ms); return true;
-      case 'cards': if (co?.role === 'client' && cm.pid === me) { co.myCards = cm.cards; this.trayKey = ''; } return true;
-      case 'pick': {
-        if (co?.role !== 'host' || !this.run) return true;
-        const p = this.run.playerById(cm.pid), offer = co.offers.get(cm.pid);
-        if (p && offer && offer[cm.i]) { this.run.applyCard(offer[cm.i], p); p.pendingCards = Math.max(0, p.pendingCards - 1); }
-        co.offers.delete(cm.pid);
-        return true;
-      }
-      case 'coop_quit': if (co?.role === 'host' && this.run) this.run.removePlayer(cm.pid); return true;
-      case 'coop_end': {
-        if (co?.role !== 'client' || !this.run) return true;
-        const r = cm.results[me];
-        this.run.over = true;
-        if (r) setTimeout(() => { if (this.coop?.role === 'client') this.finishRun(r); }, 1000);
-        else { this.coop = null; this.showHub(); }
-        return true;
-      }
-      case 'coop_lobby': {
-        if (cm.hostPid === me) return true;
-        const was = this.invite;
-        if (!cm.open) this.invite = null;
-        else {
-          this.invite = { wk: cm.wk, host: cm.host, hostPid: cm.hostPid, members: cm.members, joined: !!was?.joined && cm.members.includes(this.profile.name) };
-          if (!was && !co) this.toast(cm.host + ' opened a co-op shift in the ' + (WORLDS[cm.wk]?.name || 'sector') + '. Join from Crew & records.', 3600);
-        }
-        this.requestCrewRender();
-        return true;
-      }
-      case 'coop_join': {
-        if (!this.crew.isHost || !this.lobby || co) return true;
-        const spec = cm.spec;
-        this.lobby.members = this.lobby.members.filter(x => x.pid !== spec.pid).concat(spec).slice(0, 3);
-        this.broadcastLobby();
-        this.toast(spec.name + ' joined the co-op lobby', 1800);
-        this.requestCrewRender();
-        return true;
-      }
-      case 'coop_unjoin': {
-        if (this.lobby) { this.lobby.members = this.lobby.members.filter(x => x.pid !== cm.pid); this.broadcastLobby(); this.requestCrewRender(); }
-        return true;
-      }
-      case 'coop_start': {
-        if (co || !cm.s.specs.some(sp => sp.pid === me)) { if (!co) { this.invite = null; this.requestCrewRender(); } return true; }
-        if (this.mode === 'run' && this.run) return true; // already busy in a solo run
-        this.startCoopClient(cm.s);
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private coopPanel(online: boolean) {
-    const crew = this.crew, L = this.lobby, inv = this.invite;
-    const intro = el('p', { class: 'sub', style: 'margin:6px 0 10px' }, 'Drive the same map together. Shared XP and loot, more enemies per truck, level-up cards that do not pause the game. A wrecked truck is back after 10 seconds; the shift ends when the whole crew is down or the apex falls.');
-    let body: (Node | null)[] = [];
-    if (!online) body = [el('p', { class: 'hint', style: 'text-align:left' }, 'Start or join a crew first.')];
-    else if (crew.isHost) {
-      if (!L) body = [el('div', { class: 'row' }, WORLD_KEYS.map(k => el('button', { class: 'btn sm', style: `--cut:9px;color:${WORLDS[k].theme.accent}`, onclick: () => this.openLobby(k) }, 'Open lobby: ' + WORLDS[k].name)))];
-      else {
-        const joined = L.members.filter(m => crew.online.has(m.pid));
-        body = [
-          el('div', { class: 'members' },
-            el('div', { class: 'member on' }, el('span', { class: 'dot', style: `background:${PLAYER_COLORS[0]}` }), this.profile.name + ' (you, host)'),
-            joined.map((m, i) => el('div', { class: 'member on' }, el('span', { class: 'dot', style: `background:${PLAYER_COLORS[i + 1]}` }), m.name))),
-          el('p', { class: 'hint', style: 'text-align:left' }, joined.length ? `${joined.length + 1} trucks in the ${WORLDS[L.wk].name}. Up to 4.` : 'Waiting for crew-mates to join…'),
-          el('div', { class: 'row' },
-            el('button', { class: 'btn primary', disabled: !joined.length, onclick: () => this.startCoopHost() }, 'Start the shift ▸'),
-            el('button', { class: 'btn sm ghost', onclick: () => this.closeLobby() }, 'Close lobby')),
-        ];
-      }
-    } else if (inv) {
-      body = [
-        el('p', null, el('b', null, inv.host), ' opened a co-op shift in the ', el('b', null, WORLDS[inv.wk]?.name || inv.wk), '. In the lobby: ' + inv.members.join(', ') + '.'),
-        inv.joined
-          ? el('div', { class: 'row' }, el('span', { class: 'hint' }, 'You are in. Waiting for ' + inv.host + ' to start…'),
-            el('button', { class: 'btn sm ghost', onclick: () => { inv.joined = false; this.crew.send({ k: 'coop_unjoin', pid: this.profile.id }); this.showCrew(true); } }, 'Leave lobby'))
-          : el('button', { class: 'btn primary', onclick: () => { inv.joined = true; this.crew.send({ k: 'coop_join', spec: this.mySpec() }); uiSnd(660); this.showCrew(true); } }, 'Join with my truck ▸'),
-      ];
-    } else body = [el('p', { class: 'hint', style: 'text-align:left' }, 'No open lobby. The crew host (' + (crew.members.get(crew.hostId)?.name || 'host') + ') can open one.')];
-    return el('div', { class: 'panel', style: '--acc:var(--cyan);margin-bottom:16px' }, el('h3', null, 'Co-op shift'), intro, ...body);
-  }
-
-  private startChallenge(wk: string) {
-    const p = this.profile;
-    const c: Challenge = { id: Math.random().toString(36).slice(2, 10), wk, seed: (Math.random() * 2 ** 31) >>> 0, by: p.id, byName: p.name, at: Date.now(), entries: [] };
-    this.mergeChallenge(c);
-    this.crew.send({ k: 'challenge', c });
-    this.store();
-    uiSnd(660);
-    this.toast('Challenge posted. Everyone plays the same map with the stock truck.', 2600);
-    this.showCrew(true);
-  }
-
-  private showCrew(keepScroll = false) {
-    this.setMode('menu');
-    this.screen = 'crew';
-    const st = keepScroll ? this.ui.scrollTop : 0;
-    const p = this.profile, crew = this.crew;
-    const me = publicProfile(p);
-    const mates = Object.values(p.mates);
-
-    // --- you
-    const nameIn = el('input', { class: 'txt', maxlength: '24', value: p.name, 'aria-label': 'Your name' }) as HTMLInputElement;
-    const you = el('div', { class: 'panel' },
-      el('h3', null, 'Your badge'),
-      el('div', { class: 'row', style: 'margin-top:10px' }, nameIn,
-        el('button', { class: 'btn sm', onclick: () => {
-          const v = nameIn.value.trim().slice(0, 24);
-          if (!v) return;
-          p.name = v; this.store(); this.award('rename'); this.toast('Name tag updated.', 1400); this.showCrew(true);
-        } }, 'Save name')),
-      el('div', { class: 'statline', style: 'margin-top:12px' },
-        el('span', { class: 'stat' }, 'SHIFTS ', el('b', null, String(p.life.runs || 0))),
-        el('span', { class: 'stat' }, 'APEXES ', el('b', null, String(p.life.wins || 0))),
-        el('span', { class: 'stat' }, 'KILLS ', el('b', null, String(p.life.kills || 0))),
-        el('span', { class: 'stat' }, 'TROPHIES ', el('b', null, this.trophyCount() + '/' + TROPHIES.length))));
-
-    // --- crew connection
-    const codeIn = el('input', { class: 'txt code', maxlength: '6', placeholder: 'CODE', value: this.joinCode, 'aria-label': 'Crew code', autocapitalize: 'characters' }) as HTMLInputElement;
-    codeIn.addEventListener('input', () => { this.joinCode = cleanCode(codeIn.value); });
-    const online = crew.status === 'online';
-    const statusLine = crew.status === 'connecting' ? el('p', { class: 'sub' }, 'Connecting…')
-      : crew.status === 'error' ? el('p', { class: 'sub', style: 'color:var(--red)' }, crew.error)
-      : !online ? el('p', { class: 'sub' }, 'Start a crew on one device and share the code. Everyone else joins with it. Phones and iPads on the same Wi-Fi then talk to each other directly.') : null;
-    const members = online ? [...crew.members.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
-    const crewPanel = el('div', { class: 'panel', style: '--acc:var(--mag)' },
-      el('h3', null, 'Crew'),
-      online ? el('div', { class: 'crewcode' }, el('div', { class: 'kicker' }, crew.isHost ? 'You host crew' : 'Crew code'), el('div', { class: 'code-big' }, crew.code)) : null,
-      statusLine,
-      online ? el('div', { class: 'members' }, members.map(m => el('div', { class: 'member' + (crew.online.has(m.id) ? ' on' : '') },
-        el('span', { class: 'dot' }), m.name + (m.id === p.id ? ' (you)' : '') + (m.id === crew.hostId ? ' · host' : ''),
-        el('span', { class: 'mstat' }, (m.trophies?.length || 0) + ' trophies')))) : null,
-      el('div', { class: 'row', style: 'margin-top:12px' },
-        online || crew.status === 'connecting'
-          ? el('button', { class: 'btn sm ghost', onclick: () => { crew.leave(); this.showCrew(true); } }, 'Leave crew')
-          : [
-            el('button', { class: 'btn sm', onclick: () => { void crew.host(newCrewCode()); this.showCrew(true); } }, 'Start a crew'),
-            codeIn,
-            el('button', { class: 'btn sm', onclick: () => { const c = cleanCode(codeIn.value); if (c.length >= 4) { this.joinCode = c; void crew.join(c); this.showCrew(true); } } }, 'Join'),
-            p.crewCode ? el('button', { class: 'btn sm ghost', onclick: () => { void crew.join(p.crewCode!); this.showCrew(true); } }, 'Rejoin ' + p.crewCode) : null,
-          ]),
-      el('p', { class: 'hint', style: 'text-align:left' }, 'Devices find each other through a free connection broker, so everyone needs internet. On the same Wi-Fi the game data then goes directly between devices.'));
-
-    // --- challenges
-    const chal = el('div', { class: 'panel', style: '--acc:var(--acid)' },
-      el('h3', null, 'Shift challenges'),
-      el('p', { class: 'sub', style: 'margin:6px 0 10px' }, 'Same map, same stock truck, nothing banked. Score = kills × 10 + seconds × 2 + level × 25, plus 1,000 for the apex.' + (online ? ' Posting a challenge sends it to the whole crew.' : ' Join a crew to compete; you can still practise solo.')),
-      el('div', { class: 'row' }, WORLD_KEYS.map(k => el('button', { class: 'btn sm', style: `--cut:9px;color:${WORLDS[k].theme.accent}`, onclick: () => this.startChallenge(k) }, 'New: ' + WORLDS[k].name))),
-      p.challenges.slice(0, 5).map(c => el('div', { class: 'chal' },
-        el('div', { class: 'row' },
-          el('div', null, el('b', null, WORLDS[c.wk]?.name || c.wk), el('div', { class: 'meta' }, 'Posted by ' + c.byName + ' · ' + new Date(c.at).toLocaleString())),
-          el('div', { class: 'spacer' }),
-          el('button', { class: 'btn sm primary', onclick: () => this.startRun(c.wk, c) }, 'Play')),
-        this.challengeTable(c))));
-
-    // --- records board
-    const board = standings(me, mates);
-    const recCard = (s: ReturnType<typeof standings>[number]) => el('div', { class: 'rec ' + s.def.kind + (s.holder && s.holder.id === p.id ? ' mine' : '') },
-      el('div', { class: 'rlabel' }, s.def.label),
-      el('div', { class: 'rtitle' }, s.def.title),
-      el('div', { class: 'rholder' }, s.holder ? el('span', null, el('b', null, s.holder.name), ' · ' + fmtRecord(s.def, s.value!)) : el('span', null, 'Unclaimed. Go get it.')),
-      s.mine !== null && !(s.holder && s.holder.id === p.id) ? el('div', { class: 'rmine' }, 'You: ' + fmtRecord(s.def, s.mine)) : null);
-    const records = el('div', null,
-      el('h2', null, 'Records · serious'),
-      el('div', { class: 'recs' }, board.filter(s => s.def.kind === 'serious').map(recCard)),
-      el('h2', null, 'Records · questionable'),
-      el('div', { class: 'recs' }, board.filter(s => s.def.kind === 'fun').map(recCard)),
-      el('p', { class: 'hint', style: 'text-align:left' }, mates.length ? `Board includes ${mates.length} crew-mate${mates.length > 1 ? 's' : ''} (last known records).` : 'Only your records so far. Join a crew or swap record cards to compare.'));
-
-    // --- offline record cards
-    const myCard = el('textarea', { readonly: 'true', 'aria-label': 'Your record card' }) as HTMLTextAreaElement;
-    myCard.value = exportCard(p);
-    const theirs = el('textarea', { placeholder: 'Paste a crew-mate\'s record card here', 'aria-label': 'Crew-mate record card' }) as HTMLTextAreaElement;
-    const cardMsg = el('p', { class: 'sub' }, 'No internet? Swap record cards instead: send yours by AirDrop or Messages, paste theirs here.');
-    const cards = el('details', { class: 'panel' },
-      el('summary', null, 'Record cards (works offline)'),
-      cardMsg,
-      myCard,
-      el('div', { class: 'row', style: 'margin:10px 0 16px' },
-        el('button', { class: 'btn sm', onclick: () => { myCard.select(); navigator.clipboard?.writeText(myCard.value).then(() => { cardMsg.textContent = 'Your card is on the clipboard.'; }, () => { cardMsg.textContent = 'Select the text and copy it.'; }); } }, 'Copy my card')),
-      theirs,
-      el('div', { class: 'row', style: 'margin-top:10px' },
-        el('button', { class: 'btn sm', onclick: () => {
-          try {
-            const c = importCard(theirs.value);
-            if (c.id === p.id) throw new Error('that is your own card');
-            p.mates[c.id] = c; this.store(); this.toast(c.name + ' added to your board', 1800); this.showCrew(true);
-          } catch (e) { cardMsg.textContent = 'Could not add the card: ' + (e as Error).message + '.'; }
-        } }, 'Add to my board')),
-      mates.length ? el('div', { class: 'members', style: 'margin-top:12px' }, mates.map(m => el('div', { class: 'member' },
-        el('span', { class: 'dot' }), m.name,
-        el('button', { class: 'btn sm ghost', style: 'margin-left:auto;min-height:34px', onclick: () => { delete p.mates[m.id]; this.store(); this.showCrew(true); } }, 'Remove')))) : null);
-
-    this.show('solid', el('div', { class: 'wrap' + (keepScroll ? '' : ' screen-in') },
-      el('div', { class: 'row' },
-        el('div', null, el('div', { class: 'kicker' }, 'Break room'), el('h1', null, 'Crew & records')),
-        el('div', { class: 'spacer' }),
-        el('button', { class: 'btn', onclick: () => this.showTrophies() }, 'Trophies'),
-        el('button', { class: 'btn primary', onclick: () => this.showHub() }, 'Back')),
-      el('div', { class: 'social-grid', style: 'margin-top:16px' }, you, crewPanel),
-      this.coopPanel(online),
-      chal,
-      records,
-      cards));
-    if (keepScroll) this.ui.scrollTop = st;
+        toggle('Sound', 'Lasers, belts, gears and booms.', s.sound, () => { s.sound = !s.sound; setMuted(!s.sound); }),
+        toggle('Music', '"Shop Floor Fever": 8-bit arcade techno.', s.music, () => { s.music = !s.music; music.setEnabled(s.music); }),
+        toggle('Neon glow', 'Bloom on the neon edges. Turn off if the game stutters.', this.arena.bloomOn, () => { this.arena.bloomOn = !this.arena.bloomOn; })),
+      el('div', { class: 'row', style: 'margin-top:20px' }, el('button', { class: 'btn', onclick: () => this.showHub() }, '◂ Back'))));
   }
 }
 
-const CUP = '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 3H17V9A5 5 0 0 1 7 9Z M7 5H3V7A3 3 0 0 0 7 10 M17 5H21V7A3 3 0 0 1 17 10 M12 14V18 M8 21H16 M9 18H15V21H9Z"/></svg>';
-
-const CHARLES_SAYS = [
-  'Measure once, cut twice. Wait, no.',
-  'That is not a bug, it is a feature.',
-  'Righty tighty, lefty loosey.',
-  'I will fix it this weekend. Definitely.',
-  'Have you tried turning it off and on again?',
-  'Per my last email: more nailguns.',
-  'There is no problem duct tape cannot postpone.',
-  'Safety glasses are a lifestyle.',
-  'Let us take this offline. Into the Foundry.',
-  'The plan is: no plan survives the first wave.',
-  'Stop poking me. I am driving.',
-];
-
-// ================================================================ helpers
-export function upCost(t: string, L: number): Cost {
-  const base = B[t].cost || { scrap: 50, copper: 20 };
-  const tier = B[t].tier || 1;
-  const c: Cost = {};
-  for (const r in base) if (r !== 'shard') c[r as ResKey] = Math.ceil((base[r as ResKey] || 0) * (tier > 1 ? 0.6 : 1.5) * (L + 1) * (1 + Math.max(0, L - 5) * 0.25));
-  const sh = (L >= 2 ? L - 1 : 0) + (tier - 1) * Math.ceil((L + 1) / 3);
-  if (sh > 0) c.shard = sh;
-  return c;
-}
-
-export function upEffect(t: string): string {
-  const d = B[t];
-  const parts = ['+20% HP'];
-  if (d.w) parts.push('+15% damage', '+5% fire rate');
-  if (d.thrust) parts.push('+8% thrust');
-  if (fam(t) === 'battery' || fam(t) === 'cab') parts.push('+1 power');
-  if (d.pd) parts.push('+8% zap rate');
-  if (d.magnet) parts.push('+25 pickup range');
-  if (d.regen || d.repair) parts.push('+25% healing');
-  return parts.join(', ') + ' per level';
-}
-
-function damageReport(dmg: Record<string, number>, ks: Record<string, number>, peak: Record<string, number>, t: number) {
-  const keys = Object.keys(dmg).filter(k => dmg[k] >= 1 && B[k]).sort((a, b) => dmg[b] - dmg[a]);
-  if (!keys.length) return el('p', { class: 'sub' }, 'No damage dealt.');
-  const total = keys.reduce((a, k) => a + dmg[k], 0), top = dmg[keys[0]];
-  return el('div', { class: 'log rep' },
-    keys.map(k => el('div', { class: 'rrow' },
-      el('div', { class: 'nm', html: iconSvg(k, B[k].color, 18) }, B[k].name + (peak[k] > 1 ? ' ×' + peak[k] : '')),
-      el('div', { class: 'track' }, el('div', { class: 'fill', style: `background:${B[k].color};box-shadow:0 0 8px ${B[k].color};width:${Math.max(2, (dmg[k] / top) * 100).toFixed(1)}%` })),
-      el('div', { class: 'num' }, el('b', null, Math.round((dmg[k] / total) * 100) + '%'), ' ' + Math.round(dmg[k] / Math.max(1, t)) + '/s · ' + (ks[k] || 0) + ' kills'))),
-    el('div', { style: 'color:var(--muted);font-size:13px;margin-top:4px' },
-      'Total ' + Math.round(total).toLocaleString('en') + ' damage, ' + Math.round(total / Math.max(1, t)) + ' per second, averaged over the whole run.'));
-}
+export type { Robot };

@@ -1,68 +1,54 @@
-# Charles Projects
+# Robo Wars
 
-A workshop-themed version of Scrap Evolution: Captain Charles rides his block-built truck as a pixel-art bobblehead, and every tool is from the shop: nailguns, saw launchers, hot glue guns, laser cutters, arc welders and plasma cutters. Sectors are the Junkyard, Cold Storage and the Foundry. Pick your captain on the main screen: Charles, Hannes, Saida or Olle. In co-op every truck carries its own driver's captain. Same rules and tuned numbers as Scrap Evolution; it keeps its own save (prototype save codes still import).
+Robo Rally, played live. Five hand-drawn robots fight on a generated factory floor: program cards are played the moment they cool down, the factory still runs in registers (belts, push panels, gears, board lasers, robot lasers, energy), and energy buys upgrades from the Robo Rally deck. Heavier weapons take longer to recharge, which gives the live game its turn-based rhythm. Play against bots, or against your crew on the same Wi-Fi.
 
-### Progression, defence and music
+Rules, board elements and upgrade cards follow our interactive Robo Rally projection board (`docs/reference/RoboRally-Board-v0_101.html`).
 
-- **Tiers:** every block family has tier II and III versions (wheels, treads, air pads, plates, tape, batteries, magnets, repair, all six tools, the zapper) plus cab chassis upgrades (Pickup cab, Big rig cab). A tier unlocks when the previous tier reaches workshop Mk IV; workshop levels now go to Mk X; the grid expands to 11×11.
-- **Defence:** the Dust extractor / Spark gap / Force field emitter zaps enemy projectiles in range.
-- **Enemy fire:** bomb lobbers (landing-warning ring), rail spikes (aiming laser before the shot), homing rocket pods (guidance burns out after 1.6 s, a sharp swerve breaks the lock, and your shots, blasts and zappers can bring them down; zappers target rockets first) and scrap sprayers.
-- **Music:** "Shop Floor Fever", a procedural 8-bit arcade-techno soundtrack (menu, run and boss moods) generated live with Web Audio. When enemies crowd the truck it layers on busier hats, an octave-doubled lead and stabs, without changing the tempo. Trophies get a short fanfare. Toggle in Settings or the pause menu.
+## The robots
 
-### Crew, records and trophies
+| Robot | Moves by | Perk |
+| --- | --- | --- |
+| **Clank** | walking on three legs | the most hull, cards cool down a little slower |
+| **Bruiser** | tank treads | starts with Double Barrel, immune to knockback |
+| **Roller** | big wheels | cards cool down 20% faster, starts with a Rocket Launcher |
+| **Whirl** | sliding on its saw skirt | hovers over pits, ramming deals 2 |
+| **Picks** | crawling, pickaxe swinging | hits the robot in front for 3 every register, mines double energy |
 
-- **Trophies:** 50 PlayStation-style trophies (bronze, silver, gold, one platinum) with office and workshop jokes, including hidden easter eggs. Hint: try tapping your captain.
-- **Records:** personal bests for serious and questionable KPIs (Workaholic, The Procrastinator, Speedrun to HR, ...).
-- **Crew:** one device taps *Start a crew* and shares the 4-letter code; others join. Everyone sees a combined records board, live news, and *shift challenges*: the same map with the stock truck, scored on kills, time, level and the apex.
-- Web pages cannot scan the local Wi-Fi, so devices find each other through PeerJS's free public broker (internet needed). Data then flows peer-to-peer, directly inside the Wi-Fi when possible. To use your own broker: `npx peerjs --port 9000` and open the game with `?broker=<host>:9000`.
-- **Co-op shift:** the crew host opens a lobby, up to 3 crew-mates join with their own trucks, and everyone drives the same map. Shared XP and loot, +75% enemy pressure per extra truck, level-up cards that don't pause, respawn after 10 s. The host's device runs the world and streams snapshots (12/s); the others send their joystick and predict their own truck.
-- Offline fallback: *Record cards* (a copyable code) add a crew-mate's records to your board.
+Each robot is an animated billboard: Clank waddles, Bruiser rumbles, Roller bounces and leans, Whirl hovers on a spinning saw, Picks inches along swinging its separate pickaxe arm.
 
----
+## How a battle works
 
-## Scrap Evolution (base game)
+- **Program cards:** Move 1/2/3, Back up, Turn left/right, U-turn. Tap a card whenever it is cool (keys: W/↑, 2, 3, S/↓, A/←, D/→, X). Moving into a robot pushes it, into pits too.
+- **Registers:** every 2 s the factory acts in the reference order: blue belts ×2, green belts, push panels (on the registers printed on them), gears, board lasers, then every robot fires its laser forward (in antenna priority order). Pickaxes swing, energy cubes and repair wrenches pay out.
+- **Terrain:** walls and crates block movement and lasers (rail guns and Overload go through walls), pits and the floor edge cost a life, the priority antenna is solid.
+- **Upgrades:** spend energy any time. Permanent: Rear Laser, Double Barrel, Rail Gun, Deflector Shield (blocks the first hit each register), Mirror Plating (lasers from the front bounce back), Hover Unit. Active (Q/E/R): Rocket Launcher (9 s), Teleporter (14 s), EMP (18 s), Reverse Gear (20 s), Overload (22 s), Kamikaze (one use).
+- **Winning:** three lives each; last robot standing, or most kills when the 5-minute clock runs out. A kill pays 2 energy.
 
-An iPad-first, one-finger survivor game: build a vehicle from blocks, survive five minutes of waves, destroy the apex. Enemies are built from the same blocks as you, and every world breeds its most successful machines against the way you play.
+## Crew battles (same Wi-Fi)
 
-Neon cyberpunk 2.5D (Three.js, locked tilted camera) standalone port of the v0.2 prototype (`prototype/scrap-evolution.html`). Design: `docs/design.md`.
+One device taps **Host a crew** and shares the 4-letter code; the others **Join**. The host taps **Open the arena**, crew-mates **Take a seat**, the host starts the battle. Up to six robots; the *Battle bots* count fills empty seats. The host's device runs the match and streams snapshots (15/s); the others send their card plays. A crew-mate who drops out is taken over by a bot.
+
+Web pages cannot scan the local Wi-Fi, so devices find each other through PeerJS's free public broker (internet needed); the data then flows peer-to-peer. Your own broker: `npx peerjs --port 9000`, then open the game with `?broker=<host>:9000`.
 
 ## Play it on your iPad
 
-1. In the GitHub repo: **Settings → Pages → Build and deployment → Source: GitHub Actions** (one time).
-2. Merge to `main`. The workflow tests, builds and deploys to `https://<user>.github.io/<repo>/`.
-3. Open that URL in **Safari** on the iPad → **Share → Add to Home Screen**.
-4. Launch it from the icon: full screen, works offline. New versions show an "Update available" banner.
-
-Your prototype progress carries over: in the prototype open *Back up save*, copy the code, then paste it under **Settings & backup → Load code** here.
-
-## Controls
-
-- Touch anywhere and drag to drive. Release to coast. Everything else is automatic.
-- Weapons fire on their own inside their arc; the triangle on a block shows where it faces.
-- Desktop testing: WASD / arrow keys, `Esc` or `P` to pause.
+Build (`npm run build`) and host the `dist` folder anywhere static (GitHub Pages via the included workflow, or zip `dist` and upload it to tiiny.host). Open it in Safari → Share → Add to Home Screen: full screen, works offline.
 
 ## Develop
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173, also on your LAN (--host) for the iPad
-npm test           # unit tests: compiler, connectivity, GA, save import, headless runs
-npm run sim        # weapon duel balance report (headless bot)
+npm run dev        # http://localhost:5173, also on your LAN for the iPad
+npm test           # board generation, rules, upgrades, bot matches
 npm run build      # production PWA in dist/
 ```
 
-## Layout
-
 | Folder | What |
 | --- | --- |
-| `src/data` | All tunable numbers as JSON, validated with zod at load |
-| `src/core` | Seeded RNG, math |
-| `src/vehicle` | Block grid, connectivity, stat compiler |
-| `src/enemies` | Species genomes, compiled with the same rules |
-| `src/evolution` | Adaptive resistance + genetic algorithm |
-| `src/sim` | Headless run simulation (director, combat, loot, cards) |
-| `src/render/three` | 2.5D Three.js renderer: locked tilted camera, instanced neon blocks, bloom, 2D overlay; 3D garage preview |
-| `src/input` | Floating joystick |
-| `src/persistence` | Versioned save (prototype-compatible), IndexedDB |
-| `src/ui` | Screens, HUD, main loop |
-| `tests` | Vitest suites, bot, prototype save fixture |
+| `src/data/robo.json` | Every tunable number: board mix, register length, card cooldowns, chassis, upgrades |
+| `src/robo` | Headless rules: board generator, live match, bot pilots |
+| `src/render/three/arena3d.ts` | Three.js arena, animated robots, effects |
+| `src/net` | Crew link (PeerJS) and match snapshots |
+| `src/ui` | Hub, robot picker, HUD, shop, results |
+| `src/audio` | Board sounds (from the reference board) and the "Shop Floor Fever" chiptune |
+| `public/robots` | Robot art (Picks has its arm cut out as a separate layer) |

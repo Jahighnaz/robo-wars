@@ -3,21 +3,17 @@
 // the data flows over a direct WebRTC channel (inside the same Wi-Fi when possible).
 // Star topology: the host relays every message to everyone else.
 import type { DataConnection, Peer as PeerT } from 'peerjs';
-import { isPublicProfile, type Challenge, type ChallengeEntry, type PublicProfile } from '../meta/profile';
-import { HOST_ONLY, type CoopMsg } from './coop';
+import { HOST_ONLY, isPublicProfile, type PublicProfile, type RoboMsg } from './robonet';
 
 export type CrewMsg =
   | { k: 'hello'; p: PublicProfile }
   | { k: 'profile'; p: PublicProfile }
   | { k: 'roster'; members: PublicProfile[]; online: string[]; host: string }
-  | { k: 'news'; from: string; text: string }
-  | { k: 'challenge'; c: Challenge }
-  | { k: 'entry'; cid: string; e: ChallengeEntry }
-  | CoopMsg;
+  | RoboMsg;
 
 export type CrewStatus = 'off' | 'connecting' | 'online' | 'error';
 
-const PREFIX = 'charles-projects-crew-';
+const PREFIX = 'robo-wars-crew-';
 const ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 export function newCrewCode(): string {
@@ -145,7 +141,7 @@ export class Crew {
         this.onChange();
         return;
       }
-      // co-op inputs are for the host only
+      // match inputs are for the host only
       if (HOST_ONLY.has(m.k)) { this.onMessage(m); return; }
       // relay everything else to the other members
       const from = this.connOwner.get(conn);

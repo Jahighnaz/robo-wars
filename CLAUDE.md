@@ -1,20 +1,11 @@
-# Charles Projects (Scrap Evolution reskin) — working notes
+# Robo Wars — working notes
 
-This branch is the "Charles Projects" version: block names, colours, icons, resources, sectors and perks are reskinned to workshop tools in `src/data/*.json` and `src/render/icons.ts`; internal block ids (cannon, shotgun, ...) are unchanged so saves and tests stay compatible. Captain Charles is an 8-direction billboard (`public/charles/sheet.png`, cut by `scripts/charles-frames.py`) riding the cab as a spring bobblehead (`src/render/three/charles.ts`). Other captains (Hannes, Saida, Olle) live in `public/avatars/<id>/` (cut by `scripts/avatar-frames.py` to the same 1148 x 171 layout) and are listed in `src/meta/avatars.ts`; the pick is `profile.avatar` and travels as `PlayerSpec.avatar` in co-op. The save lives under its own storage keys.
+A live, real-time take on Robo Rally, branched from Charles Projects (which lives on `claude/charles-projects`; the truck game was removed on this branch). Rules, board elements and upgrade cards follow the owner's interactive Robo Rally board in `docs/reference/RoboRally-Board-v0_101.html`: where the code and that file disagree on a rule, the reference wins, except where the live format needs it (cards on cooldowns instead of locked registers, registers on a timer).
 
-Tiers: blocks carry `fam` (tier-1 id) and `tier`; use `fam()`/`isCab()`/`isUnlocked()` from `src/data`, never hard-coded ids. Music: `src/audio/music.ts`, one track, "Shop Floor Fever" (scheduled Web Audio chiptune; `setHeat(0-2)` adds layers when enemies crowd the truck, never tempo; `jingle(tier)` for trophies; `window.__renderMusic(mood, secs, heat)` renders a WAV for checking). The owner likes it as it is: keep the notes and tempos, and do not add other tracks unless asked.
-
-Social layer: `src/meta` (profile, records, trophies; pure logic, tested in `tests/meta.test.ts`) and `src/net/crew.ts` (PeerJS star topology, host relays; loaded lazily). Co-op: `Run` holds `players[]` (player 0 = host/local; `run.local` picks the local one on a client mirror). The host simulates; `src/net/coop.ts` encodes Int16 snapshots and `Mirror` renders them on clients (never stepped). Challenge runs are exhibition runs (`RunOptions.exhibition`) on a scratch save with the stock truck and a shared seed.
-
-Design reference: `docs/design.md` (the master prompt is in its "Master prompt" section).
-Reference implementation: `prototype/scrap-evolution.html`. Where code and prototype disagree on numbers or behaviour, the prototype wins.
-
-- Simulation (`src/sim`, `src/vehicle`, `src/enemies`, `src/evolution`, `src/data`) must never import rendering or DOM code; it runs headless in tests.
-- Tunable numbers live in `src/data/*.json`.
-- Save format is the prototype's `v: 1`; prototype export codes must keep importing (`tests/save.test.ts`).
+- Simulation (`src/robo`) is headless and seeded: no DOM or rendering imports; it runs in tests.
+- Tunable numbers live in `src/data/robo.json` (validated with zod in `src/robo/data.ts`).
+- Board generation must stay deterministic for a seed: clients rebuild the host's board from it.
+- Multiplayer: the host simulates; `src/net/robonet.ts` sends JSON snapshots (`SNAP_HZ`) and clients only copy them into a mirror `Match` (never `update()` it). Inputs are `rw_in` actions; `HOST_ONLY` messages are not relayed by the crew host.
+- Robots are billboards (`public/robots/*.png`, 512 px, bottom-centred); per-chassis motion is in `Arena3D.pose()`. Picks is two layers (`picks-body.png`, `picks-arm.png` with the pivot in `ARM_PIVOT`).
+- Music: `src/audio/music.ts`, "Shop Floor Fever" (the owner likes it as it is: keep the notes and tempos, do not add other tracks unless asked). Board sounds: `src/audio/sfx.ts`.
 - Before pushing: `npm test` and `npm run build`.
-
-Deviations from the master prompt, deliberately:
-- Rendering is 3D with Three.js (not PixiJS), per the owner's request for a 2.5D look: a locked, tilted follow camera over a real 3D scene, instanced meshes, a neon edge shader and bloom. The sim stays 2D; sim (x, y) maps to world (x, z). Text, joystick and markers are on a 2D overlay canvas. All of it lives in `src/render/three`.
-- No ECS: plain object arrays with a spatial hash, as in the prototype.
-- The weapon duel (`npm run sim`) reports instead of failing CI; with the current bot Scattergun and Flamer sit below 60% and Mortar above 160% of the Autocannon, matching the doc's own finding that they need a balance pass.
