@@ -1,7 +1,8 @@
 // Bot pilots: a greedy one-card look-ahead. Each think, a bot scores every
 // card it could play (where would I end up? would I fall? is an enemy in my
 // laser line?) and plays the best one; it buys upgrades when it can and fires
-// its active upgrades when they would hit.
+// its active upgrades when they would hit. In classic mode a bot programs its
+// registers in one go, chaining the same look-ahead from where each card leaves it.
 import { cellAt, DIRS, isSolid, OPP, wallBlocked } from './board';
 import { CARD_IDS, R, UPGRADE_IDS, type CardId } from './data';
 import type { Match, Robot } from './match';
@@ -108,6 +109,8 @@ export function firingField(m: Match, target: Robot, hover: boolean): Int16Array
 export class Bots {
   private next = new Map<number, number>();
   private want = new Map<number, string[]>();
+  /** classic: the programming window (Match.progStart) each bot last programmed */
+  private planned = new Map<number, number>();
   constructor(private m: Match, private brain: BotBrain = { think: 0.45, skill: 0.85 }) {}
 
   update(): void {
@@ -115,6 +118,16 @@ export class Bots {
     if (m.over) return;
     // classic shop phase: the clock is frozen, so bots shop right away
     if (m.phase === 'shop') { for (const rb of m.robots) if (rb.bot && !rb.out) this.shop(rb); return; }
+    if (m.classic) {
+      // classic: think for a moment once programming opens, then fill every register
+      if (m.phase !== 'program' || m.tickT < this.brain.think) return;
+      for (const rb of m.robots) {
+        if (!rb.bot || rb.out || !rb.alive || this.planned.get(rb.id) === m.progStart) continue;
+        this.planned.set(rb.id, m.progStart);
+        this.plan(rb);
+      }
+      return;
+    }
     for (const rb of m.robots) {
       if (!rb.bot || rb.out) continue;
       const due = this.next.get(rb.id) ?? 0;
@@ -141,25 +154,69 @@ export class Bots {
 
   private enemies(rb: Robot): Robot[] { return this.m.robots.filter(o => o !== rb && o.alive); }
 
+  private nearest(rb: Robot, foes: Robot[]): Robot {
+    return foes.reduce((a, o) => (Math.abs(o.r - rb.r) + Math.abs(o.c - rb.c) < Math.abs(a.r - rb.r) + Math.abs(a.c - rb.c) ? o : a), foes[0]);
+  }
+
+  /** Fire an active upgrade if one would pay off; returns whether one was used. */
+  private actives(rb: Robot, target: Robot, foes: Robot[], lined: boolean): boolean {
+    const m = this.m;
+    for (const up of rb.active) {
+      if ((rb.acd[up] ?? 0) > 0) continue;
+      if ((up === 'rocket' || up === 'over') && lined) { m.use(rb.id, up); return true; }
+      if (up === 'emp' && foes.some(o => Math.abs(o.r - rb.r) + Math.abs(o.c - rb.c) <= 4)) { m.use(rb.id, up); return true; }
+      if (up === 'kami' && rb.hp <= 3 && rb.lives > 1 && lined) { m.use(rb.id, up); return true; }
+      if (up === 'tele' && !lined && m.rng.next() < 0.3) {
+        const spot = this.teleSpot(rb, target, R.upgrades.tele.range ?? 5);
+        if (spot && m.use(rb.id, up, spot)) return true;
+      }
+      if (up === 'rev' && m.rng.next() < 0.05) { m.use(rb.id, up); return true; }
+    }
+    return false;
+  }
+
+  /** classic: program every open register, each card scored from where the cards before it leave the robot. */
+  private plan(rb: Robot): void {
+    const m = this.m;
+    const foes = this.enemies(rb);
+    if (!foes.length) { m.lock(rb.id); return; }
+    const target = this.nearest(rb, foes);
+    this.actives(rb, target, foes, foes.some(o => inLine(m, rb.r, rb.c, rb.d, rb, o)));
+    if (!rb.alive) return;
+    this.field = firingField(m, target, m.has(rb, 'hover'));
+    let at = { r: rb.r, c: rb.c, d: rb.d };
+    while (rb.prog.length < m.progN) {
+      // an empty register (standing still) is an option too; nothing after it gets programmed
+      const lined = foes.some(o => inLine(m, at.r, at.c, at.d, rb, o));
+      let best: CardId | null = null, bestAt = at;
+      let bestS = this.score(rb, at.r, at.c, at.d, target, foes) + (lined ? 4 : -1.5);
+      for (const card of CARD_IDS) {
+        if (!m.canProgram(rb, card)) continue;
+        const p = preview(m, rb, card, at);
+        if (p.dead) continue;
+        let s = this.score(rb, p.r, p.c, p.d, target, foes);
+        for (const next of CARD_IDS) {
+          const q = preview(m, rb, next, p);
+          if (!q.dead) s = Math.max(s, this.score(rb, q.r, q.c, q.d, target, foes) - 1);
+        }
+        s -= (R.classic.cards[card] ?? 0) * 0.3;
+        s += (m.rng.next() - 0.5) * (1 - this.brain.skill) * 12;
+        if (s > bestS) { bestS = s; best = card; bestAt = p; }
+      }
+      if (!best) break;
+      m.program(rb.id, best);
+      at = bestAt;
+    }
+    m.lock(rb.id);
+  }
+
   private act(rb: Robot): void {
     const m = this.m;
     const foes = this.enemies(rb);
     if (!foes.length) return;
-    const target = foes.reduce((a, o) => (Math.abs(o.r - rb.r) + Math.abs(o.c - rb.c) < Math.abs(a.r - rb.r) + Math.abs(a.c - rb.c) ? o : a), foes[0]);
+    const target = this.nearest(rb, foes);
     const lined = foes.some(o => inLine(m, rb.r, rb.c, rb.d, rb, o));
-
-    // active upgrades
-    for (const up of rb.active) {
-      if ((rb.acd[up] ?? 0) > 0) continue;
-      if ((up === 'rocket' || up === 'over') && lined) { m.use(rb.id, up); return; }
-      if (up === 'emp' && foes.some(o => Math.abs(o.r - rb.r) + Math.abs(o.c - rb.c) <= 4)) { m.use(rb.id, up); return; }
-      if (up === 'kami' && rb.hp <= 3 && rb.lives > 1 && lined) { m.use(rb.id, up); return; }
-      if (up === 'tele' && !lined && m.rng.next() < 0.3) {
-        const spot = this.teleSpot(rb, target, R.upgrades.tele.range ?? 5);
-        if (spot && m.use(rb.id, up, spot)) return;
-      }
-      if (up === 'rev' && m.rng.next() < 0.05) { m.use(rb.id, up); return; }
-    }
+    if (this.actives(rb, target, foes, lined)) return;
     if (rb.busyT > 0 || rb.jamT > 0) return;
 
     // score each playable card, plus standing still

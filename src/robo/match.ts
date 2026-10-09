@@ -1,6 +1,8 @@
 // A live Robo Wars match. Robo Rally rules, played in real time:
-// - program cards (Move 1/2/3, Back up, Turn, U-turn) are played whenever they
-//   are off cooldown, instead of being locked into five registers;
+// - live: program cards (Move 1/2/3, Back up, Turn, U-turn) are played whenever
+//   they are off cooldown, instead of being locked into five registers;
+// - classic: robots program 1-5 registers ahead, then the registers run one
+//   beat at a time: cards in antenna order, the board, lasers in antenna order;
 // - the factory still runs in registers: every `tick` seconds the board
 //   activates in the reference order (blue belts x2, green belts, push panels,
 //   gears, board lasers, robot lasers, energy) and repair wrenches mend 1;
@@ -21,6 +23,8 @@ export interface MatchOptions {
    * phase at the start of every round (5 registers) that the host ends.
    */
   classic?: boolean;
+  /** classic: registers programmed at once (1-5); 0 draws a random count each time */
+  program?: number;
 }
 
 export interface PlayerSpec { pid: string; name: string; chassis: string; bot?: boolean; color?: string }
@@ -40,8 +44,10 @@ export interface Robot {
   kills: number; deaths: number; dmg: number;
   lastHitBy: number; lastHitT: number;
   prio: number;
-  /** classic: the register count when this robot last played a card */
-  played: number;
+  /** classic: the cards programmed for the registers about to run */
+  prog: CardId[];
+  /** classic: done programming (a full program, or a bot that chose to leave registers empty) */
+  locked: boolean;
   /** energy earned this round (capped at match.roundIncome) */
   earned: number;
 }
@@ -59,6 +65,8 @@ export type MatchEvent =
   | { k: 'kill'; killer: number; victim: number; n: number }
   | { k: 'respawn'; id: number }
   | { k: 'register'; n: number }
+  | { k: 'card'; id: number; card: CardId }
+  | { k: 'program'; n: number }
   | { k: 'belt' } | { k: 'gear' } | { k: 'push' }
   | { k: 'energy'; id: number; n: number }
   | { k: 'heal'; id: number }
@@ -97,14 +105,24 @@ export class Match {
   readonly classic: boolean;
   /** registers run so far; round = 1 + floor(regCount / 5) */
   regCount = 0;
-  /** classic: 'shop' freezes the factory until the host starts the round */
-  phase: 'shop' | 'run' = 'run';
+  /**
+   * live: always 'run'. classic: 'shop' freezes the factory until the host
+   * starts the round, 'program' fills the registers, 'exec' runs them.
+   */
+  phase: 'shop' | 'program' | 'exec' | 'run' = 'run';
+  /** classic: registers programmed at once (0 = random), this window's count, and the register count it started at */
+  readonly batch: number;
+  progN = 1;
+  progStart = 0;
+  private exec: Generator<number, void, undefined> | null = null;
+  private waitT = 0;
 
   constructor(readonly seed: number, players: PlayerSpec[], opts: MatchOptions = {}) {
     this.tick = Math.max(1, opts.tick ?? R.match.tick);
     this.pace = this.tick / R.match.tick;
     this.equal = !!opts.equal;
     this.classic = !!opts.classic;
+    this.batch = Math.max(0, Math.min(5, Math.round(opts.program ?? 1)));
     if (this.classic) this.phase = 'shop';
     // a long register needs a longer clock: at least 45 registers
     this.timeLimit = Math.max(R.match.timeLimit, Math.round(45 * this.tick));
@@ -125,7 +143,7 @@ export class Match {
       hp: ch.hp, maxHp: ch.hp, lives: R.match.lives, energy: R.match.startEnergy,
       alive: true, out: false, respawnT: 0, guardT: R.match.spawnGuard, jamT: 0, busyT: 0,
       cds, passive: [], active: [], acd: {}, shieldUp: true,
-      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1, played: -1, earned: 0,
+      kills: 0, deaths: 0, dmg: 0, lastHitBy: -1, lastHitT: -99, prio: i + 1, prog: [], locked: false, earned: 0,
     };
     for (const u of ch.starts) this.install(rb, u);
     this.robots.push(rb);
@@ -188,25 +206,89 @@ export class Match {
   cardCd(rb: Robot, card: CardId): number { return this.classic ? R.classic.cards[card] ?? 0 : R.cards[card].cd * this.spec(rb).cdMul * this.pace; }
   upgradeCd(up: string): number { const cd = R.upgrades[up].cd ?? 0; return this.classic ? Math.ceil(cd / R.match.tick) : cd * this.pace; }
   get round(): number { return 1 + Math.floor(this.regCount / 5); }
-  /** classic: this robot already used its card this register */
-  spent(rb: Robot): boolean { return this.classic && rb.played === this.regCount; }
+  /** classic: this robot's program is full (or programming is closed) */
+  spent(rb: Robot): boolean { return this.classic && (this.phase !== 'program' || rb.prog.length >= this.progN); }
   canBuy(): boolean { return !this.classic || this.phase === 'shop'; }
+  /** seconds the current phase lasts: a register in live, the whole programming window in classic */
+  get phaseLen(): number { return this.phase === 'program' ? this.tick * this.progN : this.tick; }
 
-  /** classic: the host ends the shop phase and the round runs. */
+  /** classic: the host ends the shop phase and programming starts. */
   ready(id: number): boolean {
     if (!this.classic || this.phase !== 'shop' || id !== 0) return false;
-    this.phase = 'run';
     this.emit({ k: 'round', n: this.round });
+    this.startProgram();
+    return true;
+  }
+
+  /** classic: open a programming window for the next registers, never past the end of the round. */
+  private startProgram(): void {
+    const left = 6 - this.register;
+    this.progN = this.batch > 0 ? Math.min(this.batch, left) : 1 + Math.floor(this.rng.next() * left);
+    this.progStart = this.regCount;
+    for (const rb of this.robots) { rb.prog = []; rb.locked = false; }
+    this.phase = 'program';
+    this.tickT = 0;
+    this.emit({ k: 'program', n: this.progN });
+  }
+
+  /**
+   * classic: registers until `card` could run in program slot `slot` (0 = it can).
+   * Cooldowns count down once per register, so a card with cooldown n runs again n slots later.
+   */
+  cardWait(rb: Robot, card: CardId, slot = rb.prog.length): number {
+    const cd = this.cardCd(rb, card);
+    let w = rb.cds[card] - slot;
+    rb.prog.forEach((k, j) => { if (k === card && j < slot) w = Math.max(w, cd - (slot - j)); });
+    return Math.max(0, w);
+  }
+
+  canProgram(rb: Robot, card: CardId): boolean {
+    return this.classic && !this.over && this.phase === 'program' && rb.alive && !rb.out && rb.jamT <= 0 && rb.prog.length < this.progN && this.cardWait(rb, card) <= 0;
+  }
+
+  /** classic: put a card in the next empty register; it runs when the registers do. */
+  program(id: number, card: CardId): boolean {
+    const rb = this.robots[id];
+    if (!rb || !CARD_IDS.includes(card) || !this.canProgram(rb, card)) return false;
+    rb.prog.push(card);
+    return true;
+  }
+
+  /** classic: take the last programmed card back. */
+  unprogram(id: number): boolean {
+    const rb = this.robots[id];
+    if (!rb || !this.classic || this.phase !== 'program' || !rb.prog.length) return false;
+    rb.prog.pop();
+    rb.locked = false;
+    return true;
+  }
+
+  /** classic: done programming; empty registers stay empty (the robot stands still). */
+  lock(id: number): boolean {
+    const rb = this.robots[id];
+    if (!rb || !this.classic || this.phase !== 'program') return false;
+    rb.locked = true;
     return true;
   }
 
   canPlay(rb: Robot, card: CardId): boolean {
-    return !this.over && this.phase === 'run' && rb.alive && !rb.out && rb.busyT <= 0 && rb.jamT <= 0 && rb.cds[card] <= 0 && !this.spent(rb);
+    return !this.classic && !this.over && this.phase === 'run' && rb.alive && !rb.out && rb.busyT <= 0 && rb.jamT <= 0 && rb.cds[card] <= 0;
   }
 
+  /** live: play a card right now. */
   play(id: number, card: CardId): boolean {
     const rb = this.robots[id];
     if (!rb || !CARD_IDS.includes(card) || !this.canPlay(rb, card)) return false;
+    const steps = this.doCard(rb, card);
+    rb.cds[card] = this.cardCd(rb, card);
+    rb.busyT = Math.max(0.12, steps * R.match.stepTime);
+    this.prioritise();
+    return true;
+  }
+
+  /** Carry out a card; returns the steps actually taken. */
+  private doCard(rb: Robot, card: CardId): number {
+    const id = rb.id;
     let steps = 0;
     switch (card) {
       case 'move1': case 'move2': case 'move3': {
@@ -219,11 +301,7 @@ export class Match {
       case 'right': rb.d = (rb.d + 1) % 4; this.emit({ k: 'turn', id }); break;
       case 'uturn': rb.d = OPP(rb.d); this.emit({ k: 'turn', id }); break;
     }
-    rb.cds[card] = this.cardCd(rb, card);
-    rb.played = this.regCount;
-    rb.busyT = Math.max(0.12, steps * R.match.stepTime);
-    this.prioritise();
-    return true;
+    return steps;
   }
 
   /** Buy an upgrade with energy (any time, like picking up an upgrade card). */
@@ -247,7 +325,7 @@ export class Match {
   /** Fire an active upgrade. Teleport needs a target tile. */
   use(id: number, up: string, target?: { r: number; c: number }): boolean {
     const rb = this.robots[id], u = R.upgrades[up];
-    if (!rb || !u || u.kind !== 'active' || !rb.active.includes(up) || !rb.alive || rb.out || this.over || this.phase !== 'run' || (rb.acd[up] ?? 0) > 0 || rb.busyT > 0) return false;
+    if (!rb || !u || u.kind !== 'active' || !rb.active.includes(up) || !rb.alive || rb.out || this.over || (this.phase !== 'run' && this.phase !== 'program') || (rb.acd[up] ?? 0) > 0 || rb.busyT > 0) return false;
     switch (up) {
       case 'rocket': this.rocket(rb, u.dmg ?? 2); break;
       case 'emp': this.empBlast(rb, u.radius ?? 6, (u.jam ?? 4) * this.pace); break;
@@ -334,6 +412,7 @@ export class Match {
     if (!rb.alive) return;
     rb.alive = false;
     rb.hp = 0;
+    rb.prog = []; // a wrecked robot loses the rest of its program
     rb.deaths++;
     rb.lives--;
     rb.out = rb.lives <= 0;
@@ -482,9 +561,12 @@ export class Match {
     list.forEach((e, i) => { e.rb.prio = i + 1; });
   }
 
-  private beltPhase(kind: 'g' | 'b', steps: number): void {
+  private byPrio(): Robot[] { return [...this.robots].sort((x, y) => x.prio - y.prio); }
+
+  /** One belt move for every robot on a belt of this kind; returns whether anything moved. */
+  private beltStep(kind: 'g' | 'b'): boolean {
     const b = this.board;
-    for (let s = 0; s < steps; s++) {
+    {
       const props: { rb: Robot; dest: Cell | null; d: number }[] = [];
       for (const rb of this.robots) {
         if (!rb.alive) continue;
@@ -511,7 +593,7 @@ export class Match {
           if (sw) { act.delete(m); act.delete(sw); changed = true; }
         }
       }
-      if (!act.size) continue;
+      if (!act.size) return false;
       this.emit({ k: 'belt' });
       for (const m of act) {
         m.rb.r += DIRS[m.d].dr; m.rb.c += DIRS[m.d].dc;
@@ -520,26 +602,63 @@ export class Match {
         if (m.dest.type === 'conv' && m.dest.turn) { m.rb.d = m.dest.turn === 'l' ? (m.rb.d + 3) % 4 : (m.rb.d + 1) % 4; }
       }
       for (const m of act) if (m.dest) this.fallCheck(m.rb);
+      return true;
     }
   }
 
-  private pushPhase(): void {
+  private pushPhase(): boolean {
+    let pushed = false;
     for (const rb of this.robots) {
       if (!rb.alive) continue;
       const cell = this.cell(rb);
       if (!cell.pusher || !cell.pusher.ph.includes(this.register)) continue;
       this.emit({ k: 'push' });
       this.step(rb, OPP(cell.pusher.side), null);
+      pushed = true;
+    }
+    return pushed;
+  }
+
+  /** live: the whole register at once. */
+  private runRegister(): void {
+    const g = this.registerSteps();
+    while (!g.next().done) { /* no pauses in live play */ }
+  }
+
+  /** classic: the programmed registers, one after the other, with a breath between them. */
+  private *execute(): Generator<number, void, undefined> {
+    for (let i = 0; i < this.progN && !this.over; i++) {
+      yield* this.registerSteps();
+      yield R.classic.beat;
     }
   }
 
-  private runRegister(): void {
-    const b = this.board;
+  /**
+   * One register in the reference order. Each yield is a pause in seconds so
+   * players can follow it: classic yields a beat after every card, belt move,
+   * push, gear turn and laser; live runs it straight through.
+   * Order: programmed cards (classic, antenna order), blue belts x2, green
+   * belts, push panels, gears, board lasers, robot lasers (antenna order), energy.
+   */
+  private *registerSteps(): Generator<number, void, undefined> {
+    const b = this.board, beat = this.classic ? R.classic.beat : 0;
     this.emit({ k: 'register', n: this.register });
     for (const rb of this.robots) if (rb.alive) rb.shieldUp = true;
-    this.beltPhase('b', 2);
-    this.beltPhase('g', 1);
-    this.pushPhase();
+    if (this.classic) {
+      const slot = this.regCount - this.progStart;
+      this.prioritise();
+      for (const rb of this.byPrio()) {
+        const card = rb.prog[slot];
+        if (!card || !rb.alive || rb.out || rb.jamT > 0) continue;
+        this.emit({ k: 'card', id: rb.id, card });
+        const steps = this.doCard(rb, card);
+        rb.cds[card] = this.cardCd(rb, card);
+        yield Math.max(beat, steps * R.match.stepTime);
+      }
+    }
+    for (let s = 0; s < 2; s++) if (this.beltStep('b')) yield beat;
+    if (this.beltStep('g')) yield beat;
+    if (this.pushPhase()) yield beat;
     // gears
     let geared = false;
     for (const rb of this.robots) {
@@ -547,7 +666,7 @@ export class Match {
       const g = this.cell(rb).gear;
       if (g) { rb.d = g === 'cw' ? (rb.d + 1) % 4 : (rb.d + 3) % 4; geared = true; this.emit({ k: 'turn', id: rb.id }); }
     }
-    if (geared) this.emit({ k: 'gear' });
+    if (geared) { this.emit({ k: 'gear' }); yield beat; }
     // board lasers (they hit a robot standing on the emitter too)
     for (const em of b.emitters) {
       const d = OPP(em.emit!);
@@ -555,9 +674,10 @@ export class Match {
       this.emit({ k: 'beam', from: edge(em, em.emit!), to: ray.end, color: '#ff2b2b', kind: 'board' });
       if (ray.robot) this.damage(ray.robot, R.match.boardLaserDmg, null);
     }
+    if (b.emitters.length) yield beat;
     // robot lasers, in priority order; pickaxes swing at the robot in front
     this.prioritise();
-    for (const rb of [...this.robots].sort((x, y) => x.prio - y.prio)) {
+    for (const rb of this.byPrio()) {
       if (!rb.alive) continue;
       this.fireLaser(rb);
       const pick = this.spec(rb).pick;
@@ -565,6 +685,7 @@ export class Match {
         const o = this.robotAt(rb.r + DIRS[rb.d].dr, rb.c + DIRS[rb.d].dc, rb);
         if (o) { this.emit({ k: 'pick', id: rb.id, target: o.id }); this.damage(o, pick, rb); }
       }
+      yield beat;
     }
     // energy and repairs
     for (const rb of this.robots) {
@@ -583,12 +704,11 @@ export class Match {
     if (this.register === 1) for (const rb of this.robots) rb.earned = 0; // a new round, a new income allowance
     this.regCount++;
     if (this.classic) {
-      // cooldowns count down in registers; a new round opens the shop
+      // cooldowns count down in registers
       for (const rb of this.robots) {
         for (const k of CARD_IDS) if (rb.cds[k] > 0) rb.cds[k]--;
         for (const k in rb.acd) if (rb.acd[k] > 0) rb.acd[k]--;
       }
-      if (this.register === 1) { this.phase = 'shop'; this.emit({ k: 'shop', n: this.round }); }
     }
   }
 
@@ -607,8 +727,29 @@ export class Match {
       if (!rb.alive && !rb.out) { rb.respawnT -= dt; if (rb.respawnT <= 0) this.respawn(rb); }
     }
     if (this.revT > 0) { this.revT -= dt; if (this.revT <= 0) { flipBelts(this.board); this.emit({ k: 'reverse', on: false }); } }
-    this.tickT += dt;
-    if (this.tickT >= this.tick) { this.tickT -= this.tick; this.runRegister(); }
+    if (this.phase === 'run') {
+      this.tickT += dt;
+      if (this.tickT >= this.tick) { this.tickT -= this.tick; this.runRegister(); }
+    }
+    if (this.phase === 'program') {
+      this.tickT += dt;
+      // everyone has programmed: one more second to change your mind, then go
+      const last = this.phaseLen - 1;
+      if (this.tickT < last && this.robots.every(rb => rb.out || !rb.alive || rb.jamT > 0 || rb.locked || rb.prog.length >= this.progN)) this.tickT = last;
+      if (this.tickT >= this.phaseLen) { this.phase = 'exec'; this.tickT = 0; this.waitT = 0; this.exec = this.execute(); }
+    }
+    if (this.phase === 'exec') {
+      this.waitT -= dt;
+      while (this.phase === 'exec' && this.waitT <= 0 && !this.over) {
+        const s = this.exec!.next();
+        if (!s.done) { this.waitT += s.value; continue; }
+        this.exec = null;
+        for (const rb of this.robots) rb.prog = [];
+        // a new round opens the shop; otherwise program the next registers
+        if (this.register === 1) { this.phase = 'shop'; this.tickT = 0; this.emit({ k: 'shop', n: this.round }); }
+        else this.startProgram();
+      }
+    }
     const left = this.robots.filter(r => !r.out);
     if ((this.robots.length > 1 && left.length <= 1) || this.t >= this.timeLimit) {
       this.over = true;

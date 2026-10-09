@@ -4,7 +4,8 @@ A live, real-time take on Robo Rally, branched from Charles Projects (which live
 
 - Simulation (`src/robo`) is headless and seeded: no DOM or rendering imports; it runs in tests.
 - Crew PvP uses `MatchOptions.equal`: rules read `m.spec(rb)` (never `R.chassis` directly) so every robot gets `robo.json` `standard`. Chassis perks only apply vs bots.
-- Classic mode is `MatchOptions.classic`: one card per register (`Robot.played` vs `Match.regCount`), card/upgrade cooldowns in registers (`robo.json` `classic`), a `phase: 'shop'` at each round start that freezes `update()` until the host (robot 0) calls `ready()`.
+- Classic mode is `MatchOptions.classic`: phases `shop` → `program` → `exec` (live is always `run`). `program()` queues cards into `Robot.prog` for `Match.progN` registers (`MatchOptions.program`, 1-5, 0 = random; never past the round's end); `cardWait()` checks cooldowns across the queued slots. `exec` runs `registerSteps()`, a generator whose yields are pauses (`robo.json` `classic.beat`): cards in antenna order, belts, pushers, gears, board lasers, robot lasers one by one, energy. Live mode runs the same generator straight through. Cooldowns count in registers (`robo.json` `classic`); a `phase: 'shop'` at each round start freezes `update()` until the host (robot 0) calls `ready()`.
+- Crew battles: members take bot seats (`crewBotCount()` in `src/net/robonet.ts`).
 - Turn length is `MatchOptions.tick` (player setting, default 10 s). `robo.json` cooldowns are tuned at `match.tick` (2 s) and scale by `Match.pace`; use `m.cardCd()`/`m.upgradeCd()`, never raw json cooldowns.
 - Energy income goes through `Match.earn()`, capped at `match.roundIncome` per robot per round (reset when the register wraps to 1). Never add to `rb.energy` directly except when spending.
 - Tunable numbers live in `src/data/robo.json` (validated with zod in `src/robo/data.ts`).

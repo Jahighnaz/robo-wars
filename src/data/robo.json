@@ -217,6 +217,7 @@
     "hp": 10
   },
   "classic": {
+    "beat": 0.5,
     "cards": {
       "move1": 0,
       "move2": 3,

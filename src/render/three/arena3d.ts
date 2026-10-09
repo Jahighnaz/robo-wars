@@ -471,6 +471,7 @@ export class Arena3D {
           break;
         }
         case 'energy': { const v = this.views[e.id]; if (v) this.floater(new THREE.Vector3(v.x, ROBOT_H, v.z), '+' + e.n + ' ⚡', '#ffd400'); break; }
+        case 'card': { const v = this.views[e.id]; if (v) this.floater(new THREE.Vector3(v.x, ROBOT_H * 1.25, v.z), R.cards[e.card].name, m.robots[e.id]?.color ?? '#fff'); break; }
         case 'heal': { const v = this.views[e.id]; if (v) this.floater(new THREE.Vector3(v.x, ROBOT_H, v.z), '+1', '#5dff8a'); break; }
         case 'pick': { const v = this.views[e.id]; if (v) v.swing = 0.45; break; }
         case 'reverse': this.buildBelts(new THREE.PlaneGeometry(CELL * 0.86, CELL * 0.86).rotateX(-Math.PI / 2)); break;

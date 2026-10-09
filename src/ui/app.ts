@@ -13,7 +13,7 @@ import { Bots, type BotBrain } from '../robo/bot';
 import { CARD_IDS, CHASSIS_IDS, R, TEAM_COLORS, type CardId } from '../robo/data';
 import { Match, type MatchEvent, type PlayerSpec, type Robot } from '../robo/match';
 import { cleanCode, Crew, newCrewCode, type CrewMsg } from '../net/crew';
-import { applySnapshot, SNAP_HZ, snapshot, type Action, type LobbySeat, type PublicProfile } from '../net/robonet';
+import { applySnapshot, crewBotCount, SNAP_HZ, snapshot, type Action, type LobbySeat, type PublicProfile } from '../net/robonet';
 
 const BRAINS: Record<Difficulty, BotBrain> = {
   easy: { think: 1.1, skill: 0.45 },
@@ -21,6 +21,9 @@ const BRAINS: Record<Difficulty, BotBrain> = {
   hard: { think: 0.42, skill: 0.92 },
 };
 const TICKS = [3, 5, 10, 15, 20];
+/** classic: registers programmed at once; 0 = random */
+const PROGRAMS = [1, 2, 3, 4, 5, 0];
+const progLabel = (n: number) => n > 0 ? n + (n === 1 ? ' register' : ' registers') : 'a random number of registers';
 const BOT_NAMES = ['Sprocket', 'Torque', 'Rusty', 'Gizmo', 'Widget', 'Bolt', 'Ratchet', 'Clamp', 'Dynamo', 'Flux', 'Servo', 'Piston'];
 const CARD_ICON: Record<CardId, string> = { move1: '▲', move2: '▲▲', move3: '▲▲▲', back: '▼', left: '↺', right: '↻', uturn: '⟲' };
 const KEYS: Record<string, CardId> = { w: 'move1', arrowup: 'move1', '1': 'move1', '2': 'move2', '3': 'move3', s: 'back', arrowdown: 'back', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', x: 'uturn', u: 'uturn' };
@@ -50,7 +53,7 @@ export class App {
   /** member side: the host's lobby as last announced */
   private remoteLobby: Extract<CrewMsg, { k: 'rw_lobby' }> | null = null;
   private toastT = 0;
-  private hudEls: { cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; regnum: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
+  private hudEls: { prog: HTMLElement; reglabel: HTMLElement; cards: Map<CardId, HTMLButtonElement>; actives: HTMLElement; passives: HTMLElement; board: HTMLElement; clock: HTMLElement; reg: HTMLElement; regbar: HTMLElement; regnum: HTMLElement; hull: HTMLElement; energy: HTMLElement; shopBtn: HTMLButtonElement; shop: HTMLElement; status: HTMLElement } | null = null;
   private hudSig = '';
   private lastPhase = '';
 
@@ -135,7 +138,9 @@ export class App {
           el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Mode'),
             el('button', { class: 'seg' + (!s.settings.classic ? ' on' : ''), onclick: () => { s.settings.classic = false; this.store(); uiSnd(); this.showHub(); } }, 'Live'),
             el('button', { class: 'seg' + (s.settings.classic ? ' on' : ''), onclick: () => { s.settings.classic = true; this.store(); uiSnd(); this.showHub(); } }, 'Classic')),
-          el('p', { class: 'sub', style: 'margin:8px 0 0;font-size:13px' }, s.settings.classic ? 'Classic: one card per register. Move 2 recharges in 3 registers, Move 3 and Back up in 8. Upgrades are bought in a shop between rounds; the host starts each round.' : 'Live: play any card the moment it has cooled down; buy upgrades any time.'),
+          s.settings.classic ? el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Program'),
+            PROGRAMS.map(n => el('button', { class: 'seg' + (s.settings.program === n ? ' on' : ''), onclick: () => { s.settings.program = n; this.store(); uiSnd(); this.showHub(); } }, n > 0 ? String(n) : 'Random'))) : null,
+          el('p', { class: 'sub', style: 'margin:8px 0 0;font-size:13px' }, s.settings.classic ? `Classic: program ${progLabel(s.settings.program)} at a time, then they run: cards in antenna order, belts, pushers, gears, then lasers one by one. Move 2 recharges in 3 registers, Move 3 and Back up in 8. Upgrades are bought in a shop between rounds; the host starts each round.` : 'Live: play any card the moment it has cooled down; buy upgrades any time.'),
           el('div', { class: 'row', style: 'margin-top:10px' }, el('span', { class: 'lbl' }, 'Turn'), TICKS.map(t => el('button', { class: 'seg' + (s.settings.tick === t ? ' on' : ''), onclick: () => { s.settings.tick = t; this.store(); uiSnd(); this.showHub(); } }, t + 's'))),
           el('button', { class: 'btn primary big', style: 'margin-top:16px', onclick: () => this.startSolo() }, 'Fight ▸')),
         this.crewPanel()),
@@ -168,14 +173,14 @@ export class App {
         el('div', { class: 'members' }, members.map(m => el('span', { class: 'member', style: `--acc:${R.chassis[m.chassis]?.color ?? '#fff'}` }, el('img', { src: `robots/${m.chassis}-3d.png`, alt: '' }), m.name, m.id === c.hostId ? ' ★' : ''))),
         c.isHost
           ? (L ? el('div', null,
-            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · ' + (s.settings.classic ? 'classic' : 'live') + ' mode · equal specs for every robot (set these under Battle bots).'),
+            el('p', { class: 'sub' }, 'Arena open. Seats: ' + [s.pilot.name, ...L.seats.map(x => x.name)].join(', ') + ' · plus ' + this.crewBots(1 + L.seats.length) + ' bots · ' + s.settings.tick + ' s turns · ' + (s.settings.classic ? 'classic' : 'live') + ' mode' + (s.settings.classic ? ' · program ' + (s.settings.program || 'random') : '') + ' · equal specs for every robot (set these under Battle bots; crew members take bot seats).'),
             el('div', { class: 'row' },
               el('button', { class: 'btn primary', onclick: () => this.startHost() }, 'Start the battle ▸'),
               el('button', { class: 'btn ghost sm', onclick: () => this.closeLobby() }, 'Close arena')))
             : el('button', { class: 'btn primary', style: 'margin-top:10px', onclick: () => this.openLobby() }, 'Open the arena'))
           : RL?.open
             ? el('div', null,
-              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns · ' + (RL.classic ? 'classic' : 'live') + ' mode · equal specs: your robot is only a look.'),
+              el('p', { class: 'sub' }, RL.host + ' has the arena open: ' + [RL.host, ...RL.seats.map(x => x.name)].join(', ') + ' · ' + RL.tick + ' s turns · ' + (RL.classic ? 'classic, program ' + (RL.program || 'random') : 'live') + ' mode · equal specs: your robot is only a look.'),
               seated ? el('button', { class: 'btn ghost', onclick: () => c.send({ k: 'rw_leave', pid: s.pilot.id }) }, 'Leave seat · waiting for the host')
                 : el('button', { class: 'btn primary', onclick: () => c.send({ k: 'rw_join', seat: { pid: s.pilot.id, name: s.pilot.name, chassis: s.pilot.chassis } }) }, 'Take a seat ▸'))
             : el('p', { class: 'sub' }, 'Waiting for the host to open the arena.'));
@@ -183,8 +188,8 @@ export class App {
     return el('div', { class: 'panel mode' }, el('h3', null, 'Crew battle'), body);
   }
 
-  /** bots that join a crew battle: the Battle bots count, up to six robots, at least one opponent */
-  private crewBots(humans: number): number { return Math.max(humans < 2 ? 1 : 0, Math.min(this.save.settings.bots, 6 - humans)); }
+  /** bots that join a crew battle: crew members take bot seats */
+  private crewBots(humans: number): number { return crewBotCount(humans, this.save.settings.bots); }
 
   private onCrewChange() {
     if (this.screen === 'hub') this.showHub();
@@ -204,7 +209,7 @@ export class App {
   }
   private broadcastLobby() {
     const s = this.save;
-    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots, tick: this.save.settings.tick, classic: this.save.settings.classic });
+    this.crew.send({ k: 'rw_lobby', open: !!this.lobby, host: s.pilot.name, hostPid: s.pilot.id, seats: this.lobby?.seats ?? [], bots: this.save.settings.bots, tick: this.save.settings.tick, classic: this.save.settings.classic, program: this.save.settings.program });
   }
 
   private onCrew(m: CrewMsg) {
@@ -229,7 +234,7 @@ export class App {
         const idx = m.players.findIndex(p => p.pid === s.pilot.id);
         if (idx < 0) break;
         this.remoteLobby = null;
-        this.match = new Match(m.seed, m.players, { tick: m.tick, equal: m.equal, classic: m.classic });
+        this.match = new Match(m.seed, m.players, { tick: m.tick, equal: m.equal, classic: m.classic, program: m.program });
         this.bots = null;
         this.role = 'client';
         this.localId = idx;
@@ -268,7 +273,7 @@ export class App {
     unlockAudio();
     const players = [this.me(), ...this.botSpecs(this.save.settings.bots, new Set([this.save.pilot.name]), [this.save.pilot.chassis])];
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
-    this.match = new Match(timeSeed(), players, { tick: this.save.settings.tick, classic: this.save.settings.classic });
+    this.match = new Match(timeSeed(), players, { tick: this.save.settings.tick, classic: this.save.settings.classic, program: this.save.settings.program });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'solo';
     this.localId = 0;
@@ -285,12 +290,12 @@ export class App {
     players.forEach((p, i) => { p.color = TEAM_COLORS[i]; });
     const seed = timeSeed();
     // crew battles are fair fights: every robot has the same specs, the chassis is only a look
-    this.match = new Match(seed, players, { tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic });
+    this.match = new Match(seed, players, { tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic, program: this.save.settings.program });
     this.bots = new Bots(this.match, BRAINS[this.save.settings.difficulty]);
     this.role = 'host';
     this.localId = 0;
     this.lobby = null;
-    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic });
+    this.crew.send({ k: 'rw_start', seed, players, tick: this.save.settings.tick, equal: true, classic: this.save.settings.classic, program: this.save.settings.program });
     this.beginMatch();
   }
 
@@ -323,7 +328,8 @@ export class App {
   private apply(id: number, a: Action) {
     const m = this.match!;
     if (a.a === 'ready') m.ready(id);
-    else if (a.a === 'card' && CARD_IDS.includes(a.x)) m.play(id, a.x);
+    else if (a.a === 'card' && CARD_IDS.includes(a.x)) { if (m.classic) m.program(id, a.x); else m.play(id, a.x); }
+    else if (a.a === 'undo') m.unprogram(id);
     else if (a.a === 'buy') m.buy(id, a.x);
     else if (a.a === 'use') m.use(id, a.x, a.r !== undefined && a.c !== undefined ? { r: a.r, c: a.c } : undefined);
   }
@@ -358,6 +364,7 @@ export class App {
     if (k === 'escape') { if (this.shopOpen) this.toggleShop(); else if (this.role === 'solo') this.pause(!this.paused); return; }
     if (k === 'b') { this.toggleShop(); return; }
     if (k === 'enter' && this.match.phase === 'shop' && this.localId === 0) { this.act({ a: 'ready' }); return; }
+    if (k === 'backspace' && this.match.classic) { e.preventDefault(); this.act({ a: 'undo' }); return; }
     const card = KEYS[k];
     if (card) { e.preventDefault(); this.act({ a: 'card', x: card }); return; }
     const me = this.match.robots[this.localId];
@@ -418,6 +425,7 @@ export class App {
         case 'gear': sfx.gear(); break;
         case 'belt': sfx.belt(); break;
         case 'push': sfx.push(); break;
+        case 'program': if (!m.robots[this.localId]?.out) this.toast(e.n === 1 ? 'Program the next register' : `Program the next ${e.n} registers`, 1600); break;
         case 'energy': if (e.id === this.localId) sfx.charge(); break;
         case 'heal': if (e.id === this.localId) sfx.heal(); break;
         case 'emp': sfx.emp(); break;
@@ -466,6 +474,9 @@ export class App {
     const reg = el('div', { class: 'regs' }, [1, 2, 3, 4, 5].map(n => el('i', null, String(n))));
     const regbar = el('div', { class: 'regbar' }, el('b'));
     const regnum = el('span', { class: 'regnum' });
+    const reglabel = el('div', { class: 'reglabel' }, m.classic ? 'PROGRAM ' : 'LASERS IN ', regnum);
+    // classic: the registers being programmed, and a button to take the last card back
+    const prog = el('div', { class: 'prog' + (m.classic ? '' : ' off') });
     const hull = el('div', { class: 'hull' });
     const energy = el('div', { class: 'energy' });
     const passives = el('div', { class: 'passives' });
@@ -477,16 +488,16 @@ export class App {
       el('span', { html: '<svg width="18" height="18" viewBox="0 0 18 18"><rect x="3" y="2" width="4" height="14" fill="currentColor"/><rect x="11" y="2" width="4" height="14" fill="currentColor"/></svg>' }));
     this.hud.replaceChildren(
       el('div', { class: 'top' },
-        el('div', { class: 'clockbox' }, clock, el('div', { class: 'reglabel' }, 'LASERS IN ', regnum), reg, regbar),
+        el('div', { class: 'clockbox' }, clock, reglabel, reg, regbar),
         board,
         menuBtn),
       el('div', { class: 'bottom' },
         el('div', { class: 'me' }, status, hull, energy, passives),
-        tray,
+        el('div', { class: 'traywrap' }, prog, tray),
         el('div', { class: 'side' }, actives, shopBtn)),
       shop);
     this.hud.className = '';
-    this.hudEls = { cards, actives, passives, board, clock, reg, regbar, regnum, hull, energy, shopBtn, shop, status };
+    this.hudEls = { prog, reglabel, cards, actives, passives, board, clock, reg, regbar, regnum, hull, energy, shopBtn, shop, status };
     this.hudSig = '';
     this.lastPhase = '';
     void m;
@@ -497,18 +508,36 @@ export class App {
     if (!m || !H) return;
     const me = m.robots[this.localId];
     H.clock.textContent = fmtTime(Math.max(0, m.timeLimit - m.t));
-    [...H.reg.children].forEach((x, i) => x.classList.toggle('on', i + 1 === m.register));
-    (H.regbar.firstChild as HTMLElement).style.width = (100 * m.tickT / m.tick).toFixed(1) + '%';
-    H.regbar.classList.toggle('soon', m.tick - m.tickT < Math.min(1.5, m.tick * 0.2));
-    H.regnum.textContent = m.phase === 'shop' ? 'SHOP' : Math.max(0, m.tick - m.tickT).toFixed(m.tick - m.tickT < 3 ? 1 : 0) + 's';
+    // classic: the registers in this programming window are marked
+    const first = (((m.register - 1 - (m.regCount - m.progStart)) % 5) + 5) % 5 + 1;
+    const inWin = (n: number) => m.classic && (m.phase === 'program' || m.phase === 'exec') && n >= first && n < first + m.progN;
+    [...H.reg.children].forEach((x, i) => { x.classList.toggle('on', i + 1 === m.register && m.phase !== 'program'); x.classList.toggle('win', inWin(i + 1)); });
+    const len = m.phaseLen, left = len - m.tickT;
+    (H.regbar.firstChild as HTMLElement).style.width = (m.phase === 'exec' ? 100 : 100 * m.tickT / len).toFixed(1) + '%';
+    H.regbar.classList.toggle('soon', m.phase !== 'exec' && left < Math.min(1.5, len * 0.2));
+    H.regnum.textContent = m.phase === 'shop' ? 'SHOP' : m.phase === 'exec' ? 'RUNNING' : Math.max(0, left).toFixed(left < 3 ? 1 : 0) + 's';
+    if (m.classic) H.reglabel.firstChild!.textContent = m.phase === 'exec' ? '' : 'PROGRAM ';
     const spent = m.spent(me);
     for (const [k, b] of H.cards) {
-      const cd = me.cds[k], max = m.cardCd(me, k) || 1;
-      b.classList.toggle('ready', m.canPlay(me, k));
+      // classic counts registers (whole numbers) until the card fits the next empty register; live counts seconds
+      const cd = m.classic ? m.cardWait(me, k) : me.cds[k], max = (m.classic ? R.classic.cards[k] : m.cardCd(me, k)) || 1;
+      b.classList.toggle('ready', m.classic ? m.canProgram(me, k) : m.canPlay(me, k));
       b.classList.toggle('spent', spent && cd <= 0);
       b.style.setProperty('--cd', String(me.jamT > 0 || (spent && cd <= 0) ? 1 : Math.min(1, cd / max)));
-      // classic counts registers (whole numbers), live counts seconds
-      (b.lastChild as HTMLElement).textContent = me.jamT > 0 ? 'JAM' : cd > 0 ? (m.classic ? cd + ' reg' : cd.toFixed(1)) : spent ? 'next reg' : '';
+      (b.lastChild as HTMLElement).textContent = me.jamT > 0 ? 'JAM' : cd > 0 ? (m.classic ? cd + ' reg' : cd.toFixed(1)) : spent && m.classic && m.phase === 'program' ? 'full' : '';
+    }
+    if (m.classic) {
+      const psig = [m.phase, m.progN, m.regCount - m.progStart, me.prog.join()].join('|');
+      if (H.prog.dataset.sig !== psig) {
+        H.prog.dataset.sig = psig;
+        const at = m.phase === 'exec' ? m.regCount - m.progStart : -1;
+        H.prog.replaceChildren(
+          ...Array.from({ length: m.phase === 'shop' ? 0 : m.progN }, (_, i) => {
+            const k = me.prog[i];
+            return el('span', { class: 'slot' + (k ? ' set' : '') + (i === at ? ' now' : '') + (at > i ? ' done' : '') }, el('small', null, String(first + i)), k ? CARD_ICON[k] : '');
+          }),
+          ...(m.phase === 'program' ? [el('button', { class: 'undo', 'aria-label': 'Take back the last card', disabled: !me.prog.length, onpointerdown: (e: Event) => { e.preventDefault(); this.act({ a: 'undo' }); } }, '⌫')] : []));
+      }
     }
     // classic: the shop opens by itself when a round starts and closes when it runs
     if (m.classic && m.phase !== this.lastPhase) { this.lastPhase = m.phase; if (!me.out) this.setShop(m.phase === 'shop'); }
@@ -659,7 +688,7 @@ export class App {
       el('div', { class: 'steps', style: 'margin-top:18px' },
         step('1', 'Program cards, live', 'Move 1/2/3, Back up, Turn left/right and U-turn. Play any card that is cool; bigger moves cool down longer. Keys: W/↑, 2, 3, S/↓, A/←, D/→, X.', 'var(--cyan)'),
         step('2', 'The factory runs in registers', `Every register (${this.save.settings.tick} s, see Settings): blue belts move 2, green belts 1, push panels shove (on the registers printed on them), gears turn you, board lasers fire, then every robot fires its laser forward. Energy cubes and repair wrenches pay out.`, 'var(--acid)'),
-        step('2b', 'Classic mode', 'One card per register, like the board game. Move 2 recharges in 3 registers, Move 3 and Back up in 8 (the number on the card counts down). Every 5 registers a new round starts with a shop: buy upgrades, then the host taps Start round. Energy cubes refill after 8 registers.', 'var(--cyan)'),
+        step('2b', 'Classic mode', 'Program your registers, like the board game: 1 to 5 registers at a time (or a random number), set under Battle bots. Cards wait in their registers until programming ends (everyone done, or the clock runs out; ⌫ or Backspace takes the last card back). Then each register runs step by step: every robot plays its card in antenna order (nearest the antenna first), half a second apart; then blue belts, green belts, push panels and gears; then board lasers; then the robots fire one by one in antenna order. Move 2 recharges in 3 registers, Move 3 and Back up in 8. Every 5 registers a new round starts with a shop: buy upgrades, then the host taps Start round. Energy cubes refill after 8 registers.', 'var(--cyan)'),
         step('3', 'Watch your step', 'Pits and the edge of the floor cost a life. Walls and crates stop movement and lasers. You can push other robots, into pits too.', 'var(--red)'),
         step('4', 'Upgrades', 'Energy buys cards from the Robo Rally deck: Rear Laser, Double Barrel, Rail Gun, Deflector Shield, Mirror Plating, Hover, and actives (Q/E/R): Rocket, EMP, Teleport, Overload, Kamikaze, Reverse Gear. The heavier the weapon, the longer its cooldown.', 'var(--mag)'),
         step('5', 'Win', `${R.match.lives} lives each. Last robot standing wins, or the most kills when the clock runs out (at least ${fmtTime(R.match.timeLimit)}; longer with long registers). A kill pays ${R.match.killEnergy} energy. Income is capped at ${R.match.roundIncome} energy per robot per round (5 registers), from cubes and kills together.`, 'var(--green)')),
