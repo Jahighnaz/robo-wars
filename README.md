@@ -58,3 +58,7 @@ npm run build      # production PWA in dist/
 | `src/ui` | Hub, robot picker, HUD, shop, results |
 | `src/audio` | Board sounds (from the reference board) and the "Shop Floor Fever" chiptune |
 | `public/robots` | Robot art (Picks has its arm cut out as a separate layer) |
+
+## Deploying to Cloudflare
+
+`wrangler.jsonc` serves `dist/` as static assets from the Worker `broad-field-a247`. In the Worker's Git settings use build command `npm run build` and deploy command `npx wrangler deploy` (or run both locally with a Cloudflare login).
